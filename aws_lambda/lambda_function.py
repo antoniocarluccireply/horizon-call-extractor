@@ -158,22 +158,22 @@ HTML = """<!doctype html>
   <title>Horizon Call Extractor</title>
   <style>
     :root{
-      --bg1:#070a16;
-      --bg2:#0b1430;
-      --card: rgba(255,255,255,.08);
-      --card2: rgba(255,255,255,.10);
-      --stroke: rgba(255,255,255,.14);
-      --text: rgba(255,255,255,.92);
-      --muted: rgba(255,255,255,.72);
+      --bg1:#0c1222;
+      --bg2:#0b1224;
+      --card: rgba(255,255,255,.07);
+      --card2: rgba(255,255,255,.08);
+      --stroke: rgba(255,255,255,.12);
+      --text: rgba(255,255,255,.94);
+      --muted: rgba(255,255,255,.70);
       --muted2: rgba(255,255,255,.55);
 
       --accent:#7c3aed;   /* violet */
-      --accent2:#06b6d4;  /* cyan */
+      --accent2:#22d3ee;  /* cyan */
       --good:#22c55e;
       --warn:#f59e0b;
       --bad:#ef4444;
 
-      --shadow: 0 25px 70px rgba(0,0,0,.55);
+      --shadow: 0 24px 60px rgba(0,0,0,.48);
       --radius: 18px;
     }
 
@@ -184,17 +184,16 @@ HTML = """<!doctype html>
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
       color: var(--text);
       background:
-        radial-gradient(1200px 700px at 15% 10%, rgba(124,58,237,.35), transparent 55%),
-        radial-gradient(1000px 600px at 90% 25%, rgba(6,182,212,.28), transparent 60%),
-        radial-gradient(900px 600px at 45% 95%, rgba(34,197,94,.10), transparent 55%),
+        radial-gradient(1200px 700px at 18% 14%, rgba(124,58,237,.28), transparent 55%),
+        radial-gradient(1000px 600px at 88% 24%, rgba(34,211,238,.22), transparent 60%),
         linear-gradient(180deg, var(--bg1), var(--bg2));
       overflow-x:hidden;
     }
 
     .wrap{
       max-width: 940px;
-      margin: 40px auto;
-      padding: 0 18px 60px;
+      margin: 32px auto 48px;
+      padding: 0 18px 72px;
     }
 
     .topbar{
@@ -212,18 +211,10 @@ HTML = """<!doctype html>
       min-width: 240px;
     }
 
-    .logo{
-      width: 112px;
-      height: auto;
-      display:block;
-      filter: drop-shadow(0 8px 18px rgba(0,0,0,.35));
-      border-radius: 10px;
-    }
-
     .brand h1{
       margin:0;
-      font-size: 18px;
-      letter-spacing:.2px;
+      font-size: 20px;
+      letter-spacing:.3px;
     }
     .brand p{
       margin:4px 0 0;
@@ -237,7 +228,7 @@ HTML = """<!doctype html>
       align-items:center;
       gap:8px;
       border:1px solid var(--stroke);
-      background: rgba(255,255,255,.05);
+      background: rgba(255,255,255,.04);
       padding: 8px 12px;
       border-radius: 999px;
       color: var(--muted);
@@ -246,7 +237,7 @@ HTML = """<!doctype html>
     }
     .dot{
       width:8px;height:8px;border-radius:999px;
-      background: rgba(255,255,255,.35);
+      background: linear-gradient(120deg, var(--accent), var(--accent2));
       box-shadow: 0 0 0 6px rgba(255,255,255,.06);
     }
 
@@ -260,11 +251,12 @@ HTML = """<!doctype html>
     @media (max-width: 860px){
       .grid{ grid-template-columns: 1fr; }
       .brand{ min-width: 0; }
-      .logo{ width: 96px; }
+      .card{ padding: 16px; }
+      .wrap{ margin-top: 24px; padding-bottom: 64px; }
     }
 
     .card{
-      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.06));
+      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05));
       border: 1px solid var(--stroke);
       border-radius: var(--radius);
       box-shadow: var(--shadow);
@@ -287,15 +279,15 @@ HTML = """<!doctype html>
     .dropzone{
       position: relative;
       border-radius: 16px;
-      border: 1px dashed rgba(255,255,255,.22);
+      border: 1px dashed rgba(255,255,255,.18);
       background: rgba(255,255,255,.05);
       padding: 18px;
       transition: .15s ease;
     }
     .dropzone.drag{
-      border-color: rgba(6,182,212,.65);
-      box-shadow: 0 0 0 4px rgba(6,182,212,.12);
-      transform: translateY(-1px);
+      border-color: rgba(34,211,238,.7);
+      box-shadow: 0 0 0 5px rgba(34,211,238,.12);
+      transform: translateY(-1px) scale(1.005);
     }
 
     .dzrow{
@@ -333,7 +325,7 @@ HTML = """<!doctype html>
     .btn{
       appearance:none;
       border:1px solid rgba(255,255,255,.18);
-      background: rgba(255,255,255,.06);
+      background: rgba(255,255,255,.05);
       color: var(--text);
       padding: 10px 12px;
       border-radius: 12px;
@@ -353,11 +345,11 @@ HTML = """<!doctype html>
 
     .btn.primary{
       border: none;
-      background: linear-gradient(90deg, var(--accent), var(--accent2));
-      box-shadow: 0 10px 30px rgba(124,58,237,.25);
+      background: linear-gradient(110deg, var(--accent), var(--accent2));
+      box-shadow: 0 10px 28px rgba(124,58,237,.22);
     }
     .btn.primary:hover{
-      box-shadow: 0 14px 40px rgba(124,58,237,.28);
+      box-shadow: 0 14px 38px rgba(124,58,237,.26);
     }
 
     .btn.ghost{
@@ -375,9 +367,10 @@ HTML = """<!doctype html>
       margin-top: 12px;
       height: 10px;
       border-radius: 999px;
-      background: rgba(255,255,255,.07);
+      background: rgba(255,255,255,.06);
       border: 1px solid rgba(255,255,255,.12);
       overflow: hidden;
+      position: relative;
     }
 
     .bar{
@@ -386,6 +379,18 @@ HTML = """<!doctype html>
       border-radius: 999px;
       background: linear-gradient(90deg, var(--accent2), var(--accent));
       transition: width .2s ease;
+    }
+
+    .progress-label{
+      position:absolute;
+      inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size: 12px;
+      color: var(--text);
+      pointer-events:none;
+      mix-blend-mode: screen;
     }
 
     .bar.indet{
@@ -484,6 +489,7 @@ HTML = """<!doctype html>
       gap: 8px;
     }
     .chip strong{ color: var(--text); font-weight: 750; }
+    .chip.muted { color: var(--muted2); }
 
     .aside h3{
       margin: 0 0 10px;
@@ -515,6 +521,58 @@ HTML = """<!doctype html>
       border-bottom: 1px dashed rgba(255,255,255,.35);
     }
     a.link:hover{ opacity:.92; }
+
+    .toast{
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      background: rgba(255,255,255,.08);
+      border: 1px solid var(--stroke);
+      color: var(--text);
+      padding: 12px 14px;
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      display:none;
+      gap: 10px;
+      align-items:center;
+      backdrop-filter: blur(8px);
+    }
+    .toast.show{ display:flex; animation: fade 0.25s ease; }
+    @keyframes fade{ from{ opacity:0; transform: translateY(6px);} to{opacity:1; transform: translateY(0);} }
+
+    .helper{
+      margin-top: 12px;
+      color: var(--muted2);
+      font-size: 12px;
+      display:flex;
+      align-items:center;
+      gap: 8px;
+    }
+    .helper svg{ width: 16px; height: 16px; opacity: .9; }
+
+    .copybtn{
+      border: 1px solid rgba(255,255,255,.18);
+      background: rgba(255,255,255,.04);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 650;
+      font-size: 12px;
+      display:inline-flex;
+      align-items:center;
+      gap: 6px;
+    }
+
+    @media (prefers-reduced-motion: reduce){
+      *{ animation: none !important; transition: none !important; }
+      .bar{ transition: none; }
+    }
+
+    .focus-ring:focus-visible{
+      outline: 2px solid rgba(34,211,238,.7);
+      outline-offset: 2px;
+    }
   </style>
 </head>
 <body>
@@ -557,6 +615,7 @@ HTML = """<!doctype html>
 
           <div class="progress" aria-label="progress">
             <div class="bar" id="bar"></div>
+            <div class="progress-label" id="progressLabel">Pronto</div>
           </div>
 
           <div class="stepper" aria-label="steps">
@@ -582,9 +641,18 @@ HTML = """<!doctype html>
             <div class="kpi" id="kpi" style="display:none;">
               <div class="chip">Righe estratte: <strong id="rows">0</strong></div>
               <div class="chip">Stato: <strong id="final">OK</strong></div>
+              <div class="chip muted" id="expiryHint" style="display:none;">Link valido ~15 minuti</div>
               <button class="btn primary" id="downloadBtn" style="display:none;">Scarica Excel</button>
+              <button class="copybtn" id="copyBtn" style="display:none;">Copia link</button>
             </div>
 
+            <div class="helper">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 4v4m0 8v4m-4-8H4m16 0h-4" stroke="rgba(255,255,255,.7)" stroke-width="1.6" stroke-linecap="round"/>
+                <circle cx="12" cy="12" r="8" stroke="rgba(255,255,255,.22)" stroke-width="1.4"/>
+              </svg>
+              <span>Trascina qui il PDF oppure clicca per un upload sicuro su S3.</span>
+            </div>
           </div>
         </div>
       </div>
@@ -597,6 +665,10 @@ HTML = """<!doctype html>
         </ul>
       </div>
     </div>
+
+    <div class="toast" id="toast">
+      <span id="toastText">Excel pronto — download avviato.</span>
+    </div>
   </div>
 
 <script>
@@ -606,6 +678,8 @@ const state = {
   file: null,
   downloadUrl: null,
 };
+
+const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 function fmtBytes(bytes){
   const u = ["B","KB","MB","GB"];
@@ -646,14 +720,17 @@ function setBusy(busy){
 function barNone(){
   $("bar").classList.remove("indet");
   $("bar").style.width = "0%";
+  $("progressLabel").textContent = "Pronto";
 }
 function barIndeterminate(){
   $("bar").style.width = "100%";
   $("bar").classList.add("indet");
+  $("progressLabel").textContent = "Upload…";
 }
 function barSet(pct){
   $("bar").classList.remove("indet");
   $("bar").style.width = pct + "%";
+  $("progressLabel").textContent = pct >= 100 ? "Pronto" : (pct + "%");
 }
 
 async function fetchJson(url, opts){
@@ -676,11 +753,15 @@ function showResult(rows, downloadUrl){
   $("rows").textContent = String(rows ?? 0);
   $("final").textContent = "OK";
   $("downloadBtn").style.display = downloadUrl ? "inline-flex" : "none";
+  $("copyBtn").style.display = downloadUrl ? "inline-flex" : "none";
+  $("expiryHint").style.display = downloadUrl ? "inline-flex" : "none";
 }
 
 function resetResult(){
   $("kpi").style.display = "none";
   $("downloadBtn").style.display = "none";
+  $("copyBtn").style.display = "none";
+  $("expiryHint").style.display = "none";
   state.downloadUrl = null;
 }
 
@@ -757,6 +838,18 @@ $("downloadBtn").onclick = () => {
   if(state.downloadUrl) window.location = state.downloadUrl;
 };
 
+$("copyBtn").onclick = async () => {
+  if(!state.downloadUrl) return;
+  try{
+    await navigator.clipboard.writeText(state.downloadUrl);
+    showToast("Link copiato negli appunti.");
+  }catch(_e){
+    showToast("Impossibile copiare: copia manuale.");
+  }
+};
+
+$("toast").onclick = () => { $("toast").classList.remove("show"); };
+
 $("go").onclick = async () => {
   const f = state.file;
   if(!f){
@@ -777,6 +870,7 @@ $("go").onclick = async () => {
     // 2) Upload S3 (fetch PUT: no Content-Type, preserviamo il fix)
     setSteps(1, true);
     setStatus("2/4 • Upload su S3…", "Caricamento del PDF.");
+    $("progressLabel").textContent = "Upload…";
     // (fetch non espone progress nativo senza XHR; usiamo indeterminate)
     const put = await fetch(pres.upload_url, { method: "PUT", body: f });
     if(!put.ok){
@@ -786,6 +880,7 @@ $("go").onclick = async () => {
     // 3) Process
     setSteps(2, true);
     setStatus("3/4 • Parsing + generazione Excel…", "Estrazione call/topic e creazione XLSX.");
+    $("progressLabel").textContent = "Parsing…";
     const proc = await fetchJson("/process", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -795,6 +890,7 @@ $("go").onclick = async () => {
     // 4) Download presigned
     setSteps(3, true);
     setStatus("4/4 • Preparazione download…", "Creo link di download sicuro (temporaneo).");
+    $("progressLabel").textContent = "Preparazione download…";
     const dl = await fetchJson("/download", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -810,6 +906,7 @@ $("go").onclick = async () => {
     showResult(rows, state.downloadUrl);
 
     setStatus("Completato ✅", "Download pronto. Se non parte automaticamente, usa il pulsante “Scarica Excel”.");
+    showToast("Excel pronto — download avviato.");
     // auto-download
     window.location = state.downloadUrl;
 
@@ -823,6 +920,7 @@ $("go").onclick = async () => {
       sub = "Dettaglio: HTTP " + e.status + ". " + sub;
     }
     setStatus("Errore durante l’elaborazione.", msg + "\\n" + sub, true);
+    showToast("Elaborazione interrotta — riprova.");
   } finally {
     setBusy(false);
   }
@@ -830,6 +928,14 @@ $("go").onclick = async () => {
 
 // init
 setFile(null);
+
+function showToast(text){
+  const el = $("toast");
+  $("toastText").textContent = text;
+  el.classList.add("show");
+  if(prefersReducedMotion) return;
+  setTimeout(() => el.classList.remove("show"), 3500);
+}
 </script>
 </body>
 </html>
@@ -969,4 +1075,3 @@ def _process_pdf_key(key: str, context=None):
     s3.upload_file(local_xlsx, BUCKET, out_key)
 
     return {"status": "ok", "excel_key": out_key, "rows": len(rows)}
-
