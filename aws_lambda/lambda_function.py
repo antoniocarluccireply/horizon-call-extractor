@@ -17,7 +17,11 @@ BUCKET = os.environ["BUCKET_NAME"]
 
 def extract_text(pdf_path: str) -> str:
     reader = PdfReader(pdf_path)
-    return "\n".join([(p.extract_text() or "") for p in reader.pages])
+    chunks = []
+    for idx, p in enumerate(reader.pages, start=1):
+        chunks.append(f"\n<<<PAGE {idx}>>>\n")
+        chunks.append(p.extract_text() or "")
+    return "\n".join(chunks)
 
 
 def write_xlsx(rows, xlsx_path: str):
@@ -27,14 +31,25 @@ def write_xlsx(rows, xlsx_path: str):
 
     headers = [
         "cluster",
+        "stage",
+        "call_round",
+        "page",
+
         "call_id",
         "topic_id",
         "topic_title",
+
         "action_type",
-        "trl",
-        "budget_eur_m",
+
         "opening_date",
         "deadline_date",
+
+        "budget_eur_m",
+        "projects",
+        "budget_per_project_min_eur_m",
+        "budget_per_project_max_eur_m",
+
+        "trl",
     ]
     ws.append(headers)
 
