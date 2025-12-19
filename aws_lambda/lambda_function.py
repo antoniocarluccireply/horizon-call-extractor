@@ -48,6 +48,7 @@ def write_xlsx(rows, xlsx_path: str):
     ws.title = "calls"
 
     headers = [
+        "program",
         "cluster",
         "stage",
         "call_round",
@@ -70,6 +71,32 @@ def write_xlsx(rows, xlsx_path: str):
         ws.append([r.get(h) for h in headers])
 
     wb.save(xlsx_path)
+
+
+def _apply_filters(rows, filters):
+    if not filters:
+        return rows
+
+    allowed_types = set(filters.get("action_types") or [])
+    allowed_programs = set(filters.get("programs") or [])
+    min_budget = filters.get("min_budget_m")
+
+    out = []
+    for r in rows:
+        if allowed_types and (r.get("action_type") or "").upper() not in allowed_types:
+            continue
+        if allowed_programs and (r.get("program") or "") not in allowed_programs:
+            continue
+
+        if min_budget is not None:
+            candidate = r.get("budget_per_project_min_eur_m")
+            if candidate is None:
+                candidate = r.get("budget_eur_m")
+            if candidate is None or candidate < float(min_budget):
+                continue
+
+        out.append(r)
+    return out
 
 
 # --- OpenAI helpers (Responses API) ---
@@ -404,6 +431,61 @@ HTML = """<!doctype html>
       grid-template-columns: repeat(4, 1fr);
       gap: 10px;
     }
+    .filters{
+      margin: 12px 0 18px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 10px;
+    }
+    .filterbox{
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.04);
+      border-radius: 14px;
+      padding: 12px;
+    }
+    .filterbox h4{
+      margin: 0 0 8px;
+      font-size: 13px;
+      letter-spacing: .1px;
+    }
+    .pillrow{
+      display:flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .pillbtn{
+      border: 1px solid rgba(255,255,255,.14);
+      background: rgba(255,255,255,.05);
+      border-radius: 10px;
+      padding: 8px 10px;
+      color: var(--muted);
+      font-size: 12px;
+      cursor: pointer;
+      transition: .15s ease;
+    }
+    .pillbtn.active{
+      color: rgba(255,255,255,.96);
+      border-color: rgba(6,182,212,.45);
+      background: rgba(6,182,212,.10);
+      box-shadow: 0 10px 25px rgba(6,182,212,.12);
+    }
+    .sliderrow{
+      display:flex;
+      align-items:center;
+      gap: 10px;
+    }
+    .sliderrow input[type=range]{
+      flex:1;
+    }
+    .badgeghost{
+      display:inline-block;
+      padding: 4px 8px;
+      border-radius: 8px;
+      border:1px solid rgba(255,255,255,.14);
+      background: rgba(255,255,255,.05);
+      font-size: 11px;
+      color: var(--muted);
+    }
     .step{
       border: 1px solid rgba(255,255,255,.12);
       background: rgba(255,255,255,.04);
@@ -539,8 +621,26 @@ HTML = """<!doctype html>
       <div class="card">
         <h2>Upload PDF</h2>
         <p class="sub">
-          Trascina qui il file oppure clicca per selezionare.
+          Trascina qui il file oppure clicca per selezionare. Ora supporta bandi Horizon Europe e EDF con filtri per tipo di call.
         </p>
+
+        <div class="filters">
+          <div class="filterbox">
+            <h4>Programmi</h4>
+            <div class="pillrow" id="programFilters"></div>
+          </div>
+          <div class="filterbox">
+            <h4>Action type (in inglese)</h4>
+            <div class="pillrow" id="actionFilters"></div>
+          </div>
+          <div class="filterbox">
+            <h4>Min budget per progetto (M€)</h4>
+            <div class="sliderrow">
+              <input type="range" min="0" max="50" step="0.5" value="0" id="minBudget" />
+              <span class="badgeghost" id="minBudgetLabel">All budgets</span>
+            </div>
+          </div>
+        </div>
 
         <div class="dropzone" id="dz">
           <input id="file" type="file" accept="application/pdf" />
@@ -594,6 +694,7 @@ HTML = """<!doctype html>
         <ul>
           <li>Un file <strong>Excel</strong> con cluster/call/topic estratti.</li>
           <li>Colonne standardizzate: Call ID, Topic ID, titolo, budget, date, ecc.</li>
+          <li>Filtri opzionali per programma (Horizon/EDF), action type e budget minimo per progetto.</li>
         </ul>
       </div>
     </div>
@@ -605,7 +706,29 @@ const $ = (id) => document.getElementById(id);
 const state = {
   file: null,
   downloadUrl: null,
+  filters: {
+    programs: new Set(["Horizon Europe", "European Defence Fund"]),
+    actions: new Set(["RIA","IA","CSA","PCP","PPI","COFUND","RA","DA","SE"]),
+    minBudget: 0,
+  }
 };
+
+const PROGRAM_OPTIONS = [
+  { value: "Horizon Europe", label: "Horizon Europe" },
+  { value: "European Defence Fund", label: "European Defence Fund" },
+];
+
+const ACTION_OPTIONS = [
+  { code: "RIA", label: "RIA", program: "Horizon Europe" },
+  { code: "IA", label: "IA", program: "Horizon Europe" },
+  { code: "CSA", label: "CSA", program: "Horizon Europe" },
+  { code: "PCP", label: "PCP", program: "Horizon Europe" },
+  { code: "PPI", label: "PPI", program: "Horizon Europe" },
+  { code: "COFUND", label: "COFUND", program: "Horizon Europe" },
+  { code: "RA", label: "RA", program: "European Defence Fund" },
+  { code: "DA", label: "DA", program: "European Defence Fund" },
+  { code: "SE", label: "SE", program: "European Defence Fund" },
+];
 
 function fmtBytes(bytes){
   const u = ["B","KB","MB","GB"];
@@ -702,6 +825,67 @@ function setFile(f){
   setBusy(false);
 }
 
+function renderProgramFilters(){
+  const box = $("programFilters");
+  box.innerHTML = "";
+  PROGRAM_OPTIONS.forEach(opt => {
+    const btn = document.createElement("button");
+    btn.className = "pillbtn" + (state.filters.programs.has(opt.value) ? " active" : "");
+    btn.textContent = opt.label;
+    btn.onclick = () => {
+      if(state.filters.programs.has(opt.value)){
+        state.filters.programs.delete(opt.value);
+      } else {
+        state.filters.programs.add(opt.value);
+      }
+      renderProgramFilters();
+    };
+    box.appendChild(btn);
+  });
+}
+
+function renderActionFilters(){
+  const box = $("actionFilters");
+  box.innerHTML = "";
+  ACTION_OPTIONS.forEach(opt => {
+    const btn = document.createElement("button");
+    btn.className = "pillbtn" + (state.filters.actions.has(opt.code) ? " active" : "");
+    btn.textContent = `${opt.code} · ${opt.program}`;
+    btn.onclick = () => {
+      if(state.filters.actions.has(opt.code)){
+        state.filters.actions.delete(opt.code);
+      } else {
+        state.filters.actions.add(opt.code);
+      }
+      renderActionFilters();
+    };
+    box.appendChild(btn);
+  });
+}
+
+function updateBudgetLabel(){
+  const slider = $("minBudget");
+  const v = parseFloat(slider.value || "0");
+  state.filters.minBudget = v;
+  if(v <= 0){
+    $("minBudgetLabel").textContent = "All budgets";
+  } else {
+    $("minBudgetLabel").textContent = `≥ ${v.toFixed(1)} M€`;
+  }
+}
+
+function filtersPayload(){
+  const actions = Array.from(state.filters.actions);
+  const programs = Array.from(state.filters.programs);
+  const minBudget = parseFloat(state.filters.minBudget || 0);
+
+  return {
+    action_types: actions.length === ACTION_OPTIONS.length ? [] : actions,
+    programs: programs.length === PROGRAM_OPTIONS.length ? [] : programs,
+    min_budget_m: minBudget > 0 ? minBudget : null,
+  };
+}
+
 function isPdfFile(f){
   if(!f) return false;
   // alcuni browser non impostano type: controlliamo anche l'estensione
@@ -717,6 +901,7 @@ dz.addEventListener("click", (e) => {
   if (e.target.closest("button")) return;
   $("file").click();
 });
+$("minBudget").addEventListener("input", updateBudgetLabel);
 ["dragenter","dragover"].forEach(evt => dz.addEventListener(evt, (e) => {
   e.preventDefault(); e.stopPropagation();
   dz.classList.add("drag");
@@ -789,7 +974,7 @@ $("go").onclick = async () => {
     const proc = await fetchJson("/process", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pdf_key: pres.pdf_key })
+      body: JSON.stringify({ pdf_key: pres.pdf_key, filters: filtersPayload() })
     });
 
     // 4) Download presigned
@@ -829,6 +1014,9 @@ $("go").onclick = async () => {
 };
 
 // init
+renderProgramFilters();
+renderActionFilters();
+updateBudgetLabel();
 setFile(null);
 </script>
 </body>
@@ -858,7 +1046,8 @@ def handler(event, context):
         # Supporta invocazioni "dirette" (CLI) e HTTP (Lambda URL)
         if "requestContext" not in event:
             key = event["pdf_key"]
-            return _process_pdf_key(key, context=context)
+            filters = event.get("filters") if isinstance(event, dict) else None
+            return _process_pdf_key(key, filters=filters, context=context)
 
         method = event.get("requestContext", {}).get("http", {}).get("method", "GET")
         path = event.get("rawPath", "/")
@@ -884,7 +1073,8 @@ def handler(event, context):
             body = event.get("body") or "{}"
             data = json.loads(body)
             pdf_key = data["pdf_key"]
-            result = _process_pdf_key(pdf_key, context=context)
+            filters = data.get("filters") if isinstance(data, dict) else None
+            result = _process_pdf_key(pdf_key, filters=filters, context=context)
             return _resp(200, _json(result))
 
         if method == "POST" and path == "/download":
@@ -917,7 +1107,7 @@ def handler(event, context):
         )
 
 
-def _process_pdf_key(key: str, context=None):
+def _process_pdf_key(key: str, filters=None, context=None):
     _require_bucket()
 
     local_pdf = f"/tmp/{uuid.uuid4()}.pdf"
@@ -927,6 +1117,7 @@ def _process_pdf_key(key: str, context=None):
 
     text = extract_text(local_pdf)
     rows = parse_calls(text)
+    rows = _apply_filters(rows, filters or {})
 
     # --- OpenAI descriptions (optional) ---
     # Regola anti-timeout: se mancano < 8s, stop OpenAI.
@@ -969,4 +1160,3 @@ def _process_pdf_key(key: str, context=None):
     s3.upload_file(local_xlsx, BUCKET, out_key)
 
     return {"status": "ok", "excel_key": out_key, "rows": len(rows)}
-

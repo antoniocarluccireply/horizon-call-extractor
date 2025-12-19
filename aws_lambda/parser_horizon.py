@@ -1,7 +1,12 @@
 import re
 from typing import Dict, List, Optional, Tuple
 
-ACTION_TYPES = {"RIA", "IA", "CSA", "PCP", "PPI", "COFUND"}
+ACTION_TYPES_HORIZON = {"RIA", "IA", "CSA", "PCP", "PPI", "COFUND"}
+ACTION_TYPES_EDF = {"RA", "DA", "SE"}
+ACTION_TYPES = ACTION_TYPES_HORIZON | ACTION_TYPES_EDF
+
+PROGRAM_HORIZON = "Horizon Europe"
+PROGRAM_EDF = "European Defence Fund"
 
 RE_CALL_ID = re.compile(r"\bHORIZON-[A-Z0-9]+-\d{4}-\d{2}(?:-two-stage)?\b")
 
@@ -9,15 +14,19 @@ RE_TOPIC_ID = re.compile(
     r"\bHORIZON-[A-Z0-9]+-\d{4}-\d{2}-[A-Z0-9]+(?:-[A-Z0-9]+)*(?:-two-stage)?\b"
 )
 
+RE_EDF_TOPIC_ID = re.compile(r"\b(EDF-\d{4}-[A-Z]{2,4}-[A-Z0-9-]+)\b")
+
 RE_OPENING = re.compile(r"Opening:\s*(.+)")
 RE_DEADLINE = re.compile(r"Deadline\(s\):\s*(.+)")
+RE_EDF_BUDGET = re.compile(r"Indicative\s+budget:\s*EUR\s*([\d\s.,]+)", flags=re.IGNORECASE)
+RE_EDF_ACTIONS = re.compile(r"Number\s+of\s+actions\s+to\s+be\s+funded:\s*([^\n]+)", flags=re.IGNORECASE)
 
 RE_PAGE_MARKER = re.compile(r"^<<<PAGE\s+(\d+)>>>$")
 
 RE_DOT_LEADER_PAGE = re.compile(r"\s\.{3,}\s*(\d{1,4})\s*$")
 
 # Detect lines that are clearly a split identifier ending with '-'
-RE_SPLIT_ID_LINE = re.compile(r"^HORIZON-[A-Z0-9]+(?:-[A-Z0-9]+)*-$")
+RE_SPLIT_ID_LINE = re.compile(r"^(HORIZON|EDF)-[A-Z0-9]+(?:-[A-Z0-9]+)*-$")
 
 # Headings to skip for topic_description capture
 RE_SKIP_DESC = re.compile(
@@ -53,6 +62,50 @@ def _strip_dot_leader_page(s: str) -> Tuple[str, Optional[int]]:
     return cleaned, page
 
 
+def _parse_float_maybe(value: str) -> Optional[float]:
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def _parse_budget_millions(raw: str) -> Optional[float]:
+    """
+    Converts strings like "15 000 000" or "15,000,000" into millions (15.0).
+    """
+    if not raw:
+        return None
+    normalized = re.sub(r"[,\s]", "", raw)
+    val = _parse_float_maybe(normalized)
+    if val is None:
+        return None
+    return round(val / 1_000_000, 2)
+
+
+def _parse_projects_from_text(txt: str) -> Optional[int]:
+    if not txt:
+        return None
+    m_digit = re.search(r"\b(\d{1,3})\b", txt)
+    if m_digit:
+        return int(m_digit.group(1))
+    m_word = re.search(r"\b(one|two|three|four|five|six|seven|eight|nine|ten)\b", txt, flags=re.IGNORECASE)
+    if m_word:
+        mapping = {
+            "one": 1,
+            "two": 2,
+            "three": 3,
+            "four": 4,
+            "five": 5,
+            "six": 6,
+            "seven": 7,
+            "eight": 8,
+            "nine": 9,
+            "ten": 10,
+        }
+        return mapping[m_word.group(1).lower()]
+    return None
+
+
 def _parse_cluster_line(ln: str) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[int]]:
     raw = _norm(ln.replace("Call - ", ""))
     cleaned, page = _strip_dot_leader_page(raw)
@@ -80,8 +133,22 @@ def _parse_cluster_line(ln: str) -> Tuple[Optional[str], Optional[str], Optional
 
 
 def _derive_call_id_from_topic(topic_id: str) -> Optional[str]:
-    m = re.match(r"^(HORIZON-[A-Z0-9]+-\d{4}-\d{2})-", topic_id)
-    return m.group(1) if m else None
+    if topic_id.startswith("HORIZON-"):
+        m = re.match(r"^(HORIZON-[A-Z0-9]+-\d{4}-\d{2})-", topic_id)
+        return m.group(1) if m else None
+    if topic_id.startswith("EDF-"):
+        parts = topic_id.split("-")
+        if len(parts) >= 3:
+            return "-".join(parts[:3])
+    return None
+
+
+def _derive_program(topic_id: str) -> str:
+    if topic_id.startswith("HORIZON-"):
+        return PROGRAM_HORIZON
+    if topic_id.startswith("EDF-"):
+        return PROGRAM_EDF
+    return "Unknown"
 
 
 def _merge_split_identifier_lines(lines: List[str]) -> List[str]:
@@ -123,7 +190,7 @@ def _merge_split_identifier_lines(lines: List[str]) -> List[str]:
             continue
 
         # Case 2/3: partial horizon id that becomes a full topic_id when joined with next line
-        if "HORIZON-" in ln and i + 1 < len(lines):
+        if ("HORIZON-" in ln or "EDF-" in ln) and i + 1 < len(lines):
             joined = _try_join(ln, lines[i + 1])
             if joined:
                 out.append(joined)
@@ -267,7 +334,7 @@ def _extract_topic_body(lines: List[str], start_i: int, max_lines: int = 80) -> 
         # stop on next blocks
         if ln.startswith("Call - "):
             break
-        if RE_TOPIC_ID.search(ln):
+        if RE_TOPIC_ID.search(ln) or RE_EDF_TOPIC_ID.search(ln):
             break
         if RE_CALL_ID.search(ln) and not RE_TOPIC_ID.search(ln):
             break
@@ -340,6 +407,7 @@ def parse_calls(text: str) -> List[Dict]:
             current_call_id = _derive_call_id_from_topic(pending_topic_id)
 
         row = {
+            "program": _derive_program(pending_topic_id),
             "cluster": current_cluster,
             "stage": current_stage,
             "call_round": current_call_round,
@@ -425,12 +493,15 @@ def parse_calls(text: str) -> List[Dict]:
             i += 1
             continue
 
-        # Topic
+        # Topic (Horizon + EDF)
         m_topic = RE_TOPIC_ID.search(ln)
-        if m_topic:
+        m_edf = RE_EDF_TOPIC_ID.search(ln)
+
+        if m_topic or m_edf:
             flush_topic()
 
-            pending_topic_id = m_topic.group(0)
+            pending_topic_id = (m_topic or m_edf).group(0)
+            is_edf_topic = pending_topic_id.startswith("EDF-")
             pending_page = current_page
 
             cleaned_line, _ = _strip_dot_leader_page(ln)
@@ -456,7 +527,8 @@ def parse_calls(text: str) -> List[Dict]:
                     break
 
                 tokens = nxt.split()
-                if tokens and tokens[0] in ACTION_TYPES:
+
+                if not is_edf_topic and tokens and tokens[0] in ACTION_TYPES:
                     ov, new_i = _parse_overview_block(lines, i)
                     if ov:
                         pending_action_type = ov["action_type"]
@@ -480,6 +552,7 @@ def parse_calls(text: str) -> List[Dict]:
                                 tail.startswith("Destination - ")
                                 or tail.startswith("Call - ")
                                 or RE_TOPIC_ID.search(tail)
+                                or RE_EDF_TOPIC_ID.search(tail)
                                 or tail.split()[0] in ACTION_TYPES
                             ):
                                 break
@@ -499,7 +572,7 @@ def parse_calls(text: str) -> List[Dict]:
                                 break
                             tail = _norm(lines[i])
 
-                            if not tail or tail.startswith("Destination - ") or tail.startswith("Call - ") or RE_TOPIC_ID.search(tail):
+                            if not tail or tail.startswith("Destination - ") or tail.startswith("Call - ") or RE_TOPIC_ID.search(tail) or RE_EDF_TOPIC_ID.search(tail):
                                 break
 
                             m_float_end = re.search(r"(.*)\b(\d{1,4}(?:\.\d{1,2})?)\s*$", tail)
@@ -523,6 +596,32 @@ def parse_calls(text: str) -> List[Dict]:
 
                         break
 
+                # EDF parsing: scan useful metadata without requiring the overview layout
+                if is_edf_topic:
+                    if not pending_action_type:
+                        parts = pending_topic_id.split("-")
+                        if len(parts) >= 3:
+                            maybe_act = parts[2]
+                            if maybe_act in ACTION_TYPES_EDF:
+                                pending_action_type = maybe_act
+
+                    if pending_budget_total is None:
+                        m_budget = RE_EDF_BUDGET.search(nxt)
+                        if m_budget:
+                            pending_budget_total = _parse_budget_millions(m_budget.group(1))
+
+                    if pending_projects is None:
+                        m_actions = RE_EDF_ACTIONS.search(nxt)
+                        if m_actions:
+                            pending_projects = _parse_projects_from_text(m_actions.group(1))
+
+                    if not RE_SKIP_DESC.match(nxt) and not nxt.startswith("Destination - "):
+                        pending_title_parts.append(nxt)
+
+                    i += 1
+                    # continue scanning to allow capturing both budget and actions
+                    continue
+
                 if not nxt.startswith("Destination - ") and not pending_description_parts and not RE_SKIP_DESC.match(nxt):
                     pending_title_parts.append(nxt)
 
@@ -538,6 +637,3 @@ def parse_calls(text: str) -> List[Dict]:
     rows = list(best_by_topic.values())
     rows.sort(key=lambda r: (r.get("call_id") or "", r.get("topic_id") or ""))
     return rows
-
-
-
