@@ -158,23 +158,23 @@ HTML = """<!doctype html>
   <title>Horizon Call Extractor</title>
   <style>
     :root{
-      --bg1:#0f172a;
-      --bg2:#0b1b33;
-      --card: rgba(255,255,255,.12);
-      --card2: rgba(255,255,255,.12);
-      --stroke: rgba(255,255,255,.16);
-      --text: rgba(255,255,255,.95);
-      --muted: rgba(255,255,255,.78);
-      --muted2: rgba(255,255,255,.60);
+      --bg1:#f6f3ed;
+      --bg2:#f6f3ed;
+      --card: #ffffff;
+      --card2: #ffffff;
+      --stroke: rgba(0,0,0,.08);
+      --text: #1f2937;
+      --muted: #4b5563;
+      --muted2: #6b7280;
 
-      --accent:#7c3aed;   /* violet */
-      --accent2:#38bdf8;  /* cyan */
-      --good:#22c55e;
-      --warn:#f59e0b;
-      --bad:#ef4444;
+      --accent:#6f8d5f;   /* muted green */
+      --accent2:#9bbb7b;  /* lighter accent */
+      --good:#2f9e44;
+      --warn:#d97706;
+      --bad:#dc2626;
 
-      --shadow: 0 20px 56px rgba(0,0,0,.40);
-      --radius: 18px;
+      --shadow: 0 18px 38px rgba(0,0,0,.12);
+      --radius: 16px;
     }
 
     *{ box-sizing:border-box; }
@@ -183,17 +183,14 @@ HTML = """<!doctype html>
       margin:0;
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
       color: var(--text);
-      background:
-        radial-gradient(1200px 700px at 18% 14%, rgba(124,58,237,.22), transparent 55%),
-        radial-gradient(1100px 700px at 82% 16%, rgba(56,189,248,.20), transparent 60%),
-        linear-gradient(180deg, var(--bg1), var(--bg2));
+      background: linear-gradient(180deg, var(--bg1), var(--bg2));
       overflow-x:hidden;
     }
 
     .wrap{
-      max-width: 940px;
+      max-width: 1024px;
       margin: 28px auto 48px;
-      padding: 0 18px 72px;
+      padding: 0 20px 72px;
     }
 
     .topbar{
@@ -212,23 +209,23 @@ HTML = """<!doctype html>
     }
 
     .logo{
-      width: 88px;
+      width: 68px;
       height: auto;
       display:block;
-      filter: drop-shadow(0 4px 12px rgba(0,0,0,.28));
-      border-radius: 10px;
+      filter: drop-shadow(0 4px 10px rgba(0,0,0,.18));
+      border-radius: 8px;
     }
 
     .brand h1{
       margin:0;
-      font-size: 20px;
+      font-size: 21px;
       letter-spacing:.3px;
     }
     .brand p{
-      margin:4px 0 0;
+      margin:6px 0 0;
       color: var(--muted);
       font-size: 13px;
-      line-height:1.35;
+      line-height:1.45;
     }
 
     .pill{
@@ -236,8 +233,8 @@ HTML = """<!doctype html>
       align-items:center;
       gap:8px;
       border:1px solid var(--stroke);
-      background: rgba(255,255,255,.06);
-      padding: 8px 12px;
+      background: rgba(0,0,0,.04);
+      padding: 6px 12px;
       border-radius: 999px;
       color: var(--muted);
       font-size: 12px;
@@ -249,26 +246,24 @@ HTML = """<!doctype html>
       box-shadow: 0 0 0 6px rgba(255,255,255,.06);
     }
 
-    .grid{
-      display:grid;
-      grid-template-columns: 1.2fr .8fr;
+    .stack{
+      display:flex;
+      flex-direction:column;
       gap: 18px;
-      align-items: start;
+      align-items: stretch;
     }
 
     @media (max-width: 860px){
-      .grid{ grid-template-columns: 1fr; }
       .brand{ min-width: 0; }
       .card{ padding: 16px; }
       .wrap{ margin-top: 24px; padding-bottom: 64px; }
     }
 
     .card{
-      background: linear-gradient(180deg, rgba(255,255,255,.14), rgba(255,255,255,.08));
+      background: var(--card);
       border: 1px solid var(--stroke);
       border-radius: var(--radius);
       box-shadow: var(--shadow);
-      backdrop-filter: blur(10px);
       padding: 18px;
     }
 
@@ -287,14 +282,14 @@ HTML = """<!doctype html>
     .dropzone{
       position: relative;
       border-radius: 16px;
-      border: 1px dashed rgba(255,255,255,.18);
-      background: rgba(255,255,255,.05);
+      border: 1px dashed rgba(0,0,0,.12);
+      background: rgba(0,0,0,.02);
       padding: 18px;
       transition: .15s ease;
     }
     .dropzone.drag{
-      border-color: rgba(34,211,238,.7);
-      box-shadow: 0 0 0 5px rgba(34,211,238,.12);
+      border-color: rgba(111,141,95,.75);
+      box-shadow: 0 0 0 5px rgba(111,141,95,.12);
       transform: translateY(-1px) scale(1.005);
     }
 
@@ -317,6 +312,10 @@ HTML = """<!doctype html>
       font-weight: 650;
       font-size: 14px;
       color: var(--text);
+      max-width: 360px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .filesub{
       color: var(--muted2);
@@ -332,8 +331,8 @@ HTML = """<!doctype html>
 
     .btn{
       appearance:none;
-      border:1px solid rgba(255,255,255,.18);
-      background: rgba(255,255,255,.05);
+      border:1px solid rgba(0,0,0,.12);
+      background: rgba(0,0,0,.04);
       color: var(--text);
       padding: 10px 12px;
       border-radius: 12px;
@@ -347,21 +346,33 @@ HTML = """<!doctype html>
       gap: 8px;
       user-select:none;
     }
-    .btn:hover{ transform: translateY(-1px); border-color: rgba(255,255,255,.28); }
+    .btn:hover{ transform: translateY(-1px); border-color: rgba(0,0,0,.16); }
     .btn:active{ transform: translateY(0px); }
-    .btn:disabled{ opacity:.55; cursor:not-allowed; transform:none; }
+    .btn:disabled{
+      opacity:.45;
+      cursor:not-allowed;
+      transform:none;
+      background: rgba(0,0,0,.06);
+      color: rgba(0,0,0,.35);
+      border-color: rgba(0,0,0,.08);
+    }
 
     .btn.primary{
       border: none;
       background: linear-gradient(110deg, var(--accent), var(--accent2));
-      box-shadow: 0 10px 28px rgba(124,58,237,.22);
+      box-shadow: 0 10px 24px rgba(0,0,0,.18);
     }
     .btn.primary:hover{
-      box-shadow: 0 14px 38px rgba(124,58,237,.26);
+      box-shadow: 0 14px 30px rgba(0,0,0,.20);
+    }
+    .btn.success-state{
+      background: linear-gradient(110deg, #2f9e44, #9bbb7b);
+      color: #0f172a;
+      box-shadow: 0 12px 28px rgba(47,158,68,.26);
     }
 
     .btn.ghost{
-      background: rgba(255,255,255,.05);
+      background: rgba(0,0,0,.04);
     }
 
     input[type=file]{
@@ -371,12 +382,18 @@ HTML = """<!doctype html>
       pointer-events:none; /* <-- IMPORTANT: non intercetta click */
     }
 
+    @media (max-width: 540px){
+      .dropzone{ padding: 14px; }
+      .filename{ max-width: 240px; }
+      .actions{ width:100%; justify-content:flex-start; }
+    }
+
     .progress{
       margin-top: 12px;
       height: 10px;
       border-radius: 999px;
-      background: rgba(255,255,255,.06);
-      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(0,0,0,.05);
+      border: 1px solid rgba(0,0,0,.08);
       overflow: hidden;
       position: relative;
     }
@@ -418,8 +435,8 @@ HTML = """<!doctype html>
       gap: 10px;
     }
     .step{
-      border: 1px solid rgba(255,255,255,.12);
-      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(0,0,0,.10);
+      background: rgba(0,0,0,.03);
       border-radius: 14px;
       padding: 10px 10px;
       color: var(--muted2);
@@ -432,8 +449,8 @@ HTML = """<!doctype html>
     .badge{
       width: 22px;height:22px;border-radius: 7px;
       display:flex;align-items:center;justify-content:center;
-      border: 1px solid rgba(255,255,255,.18);
-      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(0,0,0,.12);
+      background: rgba(0,0,0,.04);
       color: var(--muted);
       font-weight: 750;
       font-size: 12px;
@@ -441,26 +458,36 @@ HTML = """<!doctype html>
     }
     .step.active{
       color: var(--text);
-      border-color: rgba(6,182,212,.35);
-      background: rgba(6,182,212,.08);
+      border-color: rgba(111,141,95,.35);
+      background: rgba(111,141,95,.08);
     }
     .step.done{
-      color: rgba(255,255,255,.86);
-      border-color: rgba(34,197,94,.35);
-      background: rgba(34,197,94,.08);
+      color: var(--text);
+      border-color: rgba(47,158,68,.35);
+      background: rgba(47,158,68,.08);
     }
     .step.done .badge{
-      border-color: rgba(34,197,94,.40);
-      background: rgba(34,197,94,.12);
-      color: rgba(255,255,255,.92);
+      border-color: rgba(47,158,68,.40);
+      background: rgba(47,158,68,.12);
+      color: var(--text);
+    }
+
+    @media (max-width: 560px){
+      .stepper{ grid-template-columns: repeat(2, minmax(0,1fr)); }
+    }
+    @media (max-width: 420px){
+      .stepper{
+        display:flex;
+        flex-direction: column;
+      }
     }
 
     .statusbox{
       margin-top: 14px;
       border-radius: 14px;
       padding: 12px;
-      border: 1px solid rgba(255,255,255,.12);
-      background: rgba(0,0,0,.18);
+      border: 1px solid rgba(0,0,0,.08);
+      background: rgba(0,0,0,.04);
     }
     .statusline{
       display:flex;
@@ -474,11 +501,11 @@ HTML = """<!doctype html>
     .icon{
       width: 18px;height:18px; flex: 0 0 auto;
       margin-top: 1px;
-      opacity: .95;
+      opacity: .85;
     }
 
-    .ok{ color: rgba(255,255,255,.92); }
-    .err{ color: rgba(255,255,255,.92); }
+    .ok{ color: var(--text); }
+    .err{ color: #b91c1c; }
     .kpi{
       margin-top: 10px;
       display:flex;
@@ -486,8 +513,8 @@ HTML = """<!doctype html>
       flex-wrap: wrap;
     }
     .chip{
-      border: 1px solid rgba(255,255,255,.12);
-      background: rgba(255,255,255,.05);
+      border: 1px solid rgba(0,0,0,.08);
+      background: rgba(0,0,0,.03);
       border-radius: 999px;
       padding: 7px 10px;
       font-size: 12px;
@@ -534,16 +561,15 @@ HTML = """<!doctype html>
       position: fixed;
       right: 16px;
       bottom: 16px;
-      background: rgba(255,255,255,.08);
-      border: 1px solid var(--stroke);
+      background: #ffffff;
+      border: 1px solid rgba(0,0,0,.08);
       color: var(--text);
       padding: 12px 14px;
       border-radius: 12px;
-      box-shadow: var(--shadow);
+      box-shadow: 0 12px 30px rgba(0,0,0,.15);
       display:none;
       gap: 10px;
       align-items:center;
-      backdrop-filter: blur(8px);
     }
     .toast.show{ display:flex; animation: fade 0.25s ease; }
     @keyframes fade{ from{ opacity:0; transform: translateY(6px);} to{opacity:1; transform: translateY(0);} }
@@ -559,8 +585,8 @@ HTML = """<!doctype html>
     .helper svg{ width: 16px; height: 16px; opacity: .9; }
 
     .copybtn{
-      border: 1px solid rgba(255,255,255,.18);
-      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(0,0,0,.12);
+      background: rgba(0,0,0,.02);
       color: var(--text);
       padding: 8px 10px;
       border-radius: 10px;
@@ -578,7 +604,7 @@ HTML = """<!doctype html>
     }
 
     .focus-ring:focus-visible{
-      outline: 2px solid rgba(34,211,238,.7);
+      outline: 2px solid rgba(111,141,95,.7);
       outline-offset: 2px;
     }
   </style>
@@ -591,40 +617,39 @@ HTML = """<!doctype html>
           src="data:image/png;base64,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" />
           <div>
             <h1>Horizon Call Extractor</h1>
-            <p>Carica un PDF Horizon Europe → estrai call/topic → scarica l’Excel.</p>
+            <p>Upload a Horizon Europe PDF → extract calls/topics → download the Excel.</p>
           </div>
         </div>
-
     </div>
 
-    <div class="grid">
+    <div class="stack">
       <div class="card">
         <h2>Upload PDF</h2>
         <p class="sub">
-          Trascina qui il file oppure clicca per selezionare.
+          Drag & drop your PDF or click to select.
         </p>
 
         <div class="dropzone" id="dz">
           <input id="file" type="file" accept="application/pdf" />
           <div class="dzrow">
             <div class="filemeta">
-              <div class="filename" id="filename">Nessun file selezionato</div>
-              <div class="filesub" id="filesub">Formato supportato: PDF</div>
+              <div class="filename" id="filename">No file selected</div>
+              <div class="filesub" id="filesub">Supported format: PDF</div>
             </div>
             <div class="actions">
-              <button class="btn ghost" id="clear" disabled>Rimuovi</button>
-              <button class="btn primary" id="go" disabled>Genera Excel</button>
+              <button class="btn ghost focus-ring" id="clear" disabled>Remove</button>
+              <button class="btn primary focus-ring" id="go" disabled>Generate Excel</button>
             </div>
           </div>
 
           <div class="progress" aria-label="progress">
             <div class="bar" id="bar"></div>
-            <div class="progress-label" id="progressLabel">Pronto</div>
+            <div class="progress-label" id="progressLabel">Ready</div>
           </div>
 
           <div class="stepper" aria-label="steps">
             <div class="step" id="s1"><span class="badge">1</span><span>Presign</span></div>
-            <div class="step" id="s2"><span class="badge">2</span><span>Upload S3</span></div>
+            <div class="step" id="s2"><span class="badge">2</span><span>Upload</span></div>
             <div class="step" id="s3"><span class="badge">3</span><span>Parsing</span></div>
             <div class="step" id="s4"><span class="badge">4</span><span>Download</span></div>
           </div>
@@ -632,47 +657,39 @@ HTML = """<!doctype html>
           <div class="statusbox">
             <div class="statusline" id="status">
               <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Z" stroke="rgba(255,255,255,.55)" stroke-width="1.5"/>
-                <path d="M12 8v5" stroke="rgba(255,255,255,.65)" stroke-width="1.5" stroke-linecap="round"/>
-                <path d="M12 16h.01" stroke="rgba(255,255,255,.75)" stroke-width="2.5" stroke-linecap="round"/>
+                <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Z" stroke="rgba(0,0,0,.35)" stroke-width="1.5"/>
+                <path d="M12 8v5" stroke="rgba(0,0,0,.45)" stroke-width="1.5" stroke-linecap="round"/>
+                <path d="M12 16h.01" stroke="rgba(0,0,0,.55)" stroke-width="2.5" stroke-linecap="round"/>
               </svg>
               <div>
-                <div class="ok" id="statusMain">Seleziona un PDF per iniziare.</div>
-                <div class="tiny" id="statusSub">Suggerimento: se il PDF è molto grande, l’elaborazione può richiedere qualche secondo.</div>
+                <div class="ok" id="statusMain">Select a PDF to get started.</div>
+                <div class="tiny" id="statusSub">Tip: large PDFs may take a few seconds to parse.</div>
               </div>
             </div>
 
             <div class="kpi" id="kpi" style="display:none;">
-              <div class="chip">Righe estratte: <strong id="rows">0</strong></div>
-              <div class="chip">Stato: <strong id="final">OK</strong></div>
-              <div class="chip muted" id="expiryHint" style="display:none;">Link valido ~15 minuti</div>
-              <div class="chip" id="scanChip" style="display:none;">Scan live: <strong id="scanCounter">0</strong></div>
-              <button class="btn primary" id="downloadBtn" style="display:none;">Scarica Excel</button>
-              <button class="copybtn" id="copyBtn" style="display:none;">Copia link</button>
+              <div class="chip">Rows extracted: <strong id="rows">0</strong></div>
+              <div class="chip">Status: <strong id="final">OK</strong></div>
+              <div class="chip muted" id="expiryHint" style="display:none;">Link valid ~15 minutes</div>
+              <div class="chip" id="scanChip" style="display:none;">Live scan: <strong id="scanCounter">0</strong></div>
+              <button class="btn primary focus-ring" id="downloadBtn" style="display:none;">Download Excel</button>
+              <button class="copybtn focus-ring" id="copyBtn" style="display:none;">Copy link</button>
             </div>
 
             <div class="helper">
               <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M12 4v4m0 8v4m-4-8H4m16 0h-4" stroke="rgba(255,255,255,.7)" stroke-width="1.6" stroke-linecap="round"/>
-                <circle cx="12" cy="12" r="8" stroke="rgba(255,255,255,.22)" stroke-width="1.4"/>
+                <path d="M12 4v4m0 8v4m-4-8H4m16 0h-4" stroke="rgba(0,0,0,.55)" stroke-width="1.6" stroke-linecap="round"/>
+                <circle cx="12" cy="12" r="8" stroke="rgba(0,0,0,.25)" stroke-width="1.4"/>
               </svg>
-              <span>Trascina qui il PDF oppure clicca per un upload sicuro su S3.</span>
+              <span>Drag your PDF here or click to pick a file. Upload stays on S3.</span>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="card aside">
-        <h3>Cosa otterrai</h3>
-        <ul>
-          <li>Un file <strong>Excel</strong> con cluster/call/topic estratti.</li>
-          <li>Colonne standardizzate: Call ID, Topic ID, titolo, budget, date, ecc.</li>
-        </ul>
+      <div class="toast" id="toast">
+        <span id="toastText">Excel ready — download started.</span>
       </div>
-    </div>
-
-    <div class="toast" id="toast">
-      <span id="toastText">Excel pronto — download avviato.</span>
     </div>
   </div>
 
@@ -713,8 +730,8 @@ function setStatus(main, sub, isError=false){
   $("statusMain").textContent = main;
   $("statusSub").textContent = sub || "";
   if(isError){
-    $("final").textContent = "ERRORE";
-    $("final").style.color = "rgba(255,255,255,.92)";
+    $("final").textContent = "ERROR";
+    $("final").style.color = "#b91c1c";
   }
 }
 
@@ -727,17 +744,17 @@ function setBusy(busy){
 function barNone(){
   $("bar").classList.remove("indet");
   $("bar").style.width = "0%";
-  $("progressLabel").textContent = "Pronto";
+  $("progressLabel").textContent = "Ready";
 }
 function barIndeterminate(){
   $("bar").style.width = "100%";
   $("bar").classList.add("indet");
-  $("progressLabel").textContent = "Upload…";
+  $("progressLabel").textContent = "Uploading…";
 }
 function barSet(pct){
   $("bar").classList.remove("indet");
   $("bar").style.width = pct + "%";
-  $("progressLabel").textContent = pct >= 100 ? "Pronto" : (pct + "%");
+  $("progressLabel").textContent = pct >= 100 ? "Ready" : (pct + "%");
 }
 
 async function fetchJson(url, opts){
@@ -759,7 +776,9 @@ function showResult(rows, downloadUrl){
   $("kpi").style.display = "flex";
   $("rows").textContent = String(rows ?? 0);
   $("final").textContent = "OK";
+  $("final").style.color = "var(--text)";
   $("downloadBtn").style.display = downloadUrl ? "inline-flex" : "none";
+  $("downloadBtn").classList.add("success-state");
   $("copyBtn").style.display = downloadUrl ? "inline-flex" : "none";
   $("expiryHint").style.display = downloadUrl ? "inline-flex" : "none";
   $("scanChip").style.display = downloadUrl ? "inline-flex" : "none";
@@ -769,6 +788,7 @@ function showResult(rows, downloadUrl){
 function resetResult(){
   $("kpi").style.display = "none";
   $("downloadBtn").style.display = "none";
+  $("downloadBtn").classList.remove("success-state");
   $("copyBtn").style.display = "none";
   $("expiryHint").style.display = "none";
   $("scanChip").style.display = "none";
@@ -780,9 +800,9 @@ function setFile(f){
   state.file = f || null;
   resetResult();
   if(!state.file){
-    $("filename").textContent = "Nessun file selezionato";
-    $("filesub").textContent = "Formato supportato: PDF";
-    setStatus("Seleziona un PDF per iniziare.", "Trascina e rilascia oppure clicca per selezionare.");
+    $("filename").textContent = "No file selected";
+    $("filesub").textContent = "Supported format: PDF";
+    setStatus("Select a PDF to get started.", "Drag & drop or click to select.");
     clearSteps();
     barNone();
     setBusy(false);
@@ -790,7 +810,7 @@ function setFile(f){
   }
   $("filename").textContent = state.file.name;
   $("filesub").textContent = fmtBytes(state.file.size) + " • " + (state.file.type || "application/pdf");
-  setStatus("Pronto a generare l’Excel.", "Clicca “Genera Excel”.");
+  setStatus("Ready to generate the Excel file.", "Click “Generate Excel”.");
   setBusy(false);
 }
 
@@ -821,7 +841,7 @@ dz.addEventListener("drop", (e) => {
   const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
   if(!f) return;
   if(!isPdfFile(f)){
-    setStatus("Formato non valido.", "Seleziona un file PDF (estensione .pdf).", true);
+    setStatus("Invalid format.", "Please select a PDF file (.pdf).", true);
     return;
   }
   $("file").value = "";
@@ -833,7 +853,7 @@ $("file").addEventListener("change", () => {
   const f = $("file").files[0];
   if(!f) return;
   if(!isPdfFile(f)){
-    setStatus("Formato non valido.", "Seleziona un file PDF (estensione .pdf).", true);
+    setStatus("Invalid format.", "Please select a PDF file (.pdf).", true);
     $("file").value = "";
     return;
   }
@@ -853,9 +873,9 @@ $("copyBtn").onclick = async () => {
   if(!state.downloadUrl) return;
   try{
     await navigator.clipboard.writeText(state.downloadUrl);
-    showToast("Link copiato negli appunti.");
+    showToast("Link copied to clipboard.");
   }catch(_e){
-    showToast("Impossibile copiare: copia manuale.");
+    showToast("Unable to copy: please copy manually.");
   }
 };
 
@@ -864,7 +884,7 @@ $("toast").onclick = () => { $("toast").classList.remove("show"); };
 $("go").onclick = async () => {
   const f = state.file;
   if(!f){
-    setStatus("Seleziona un PDF.", "Trascina e rilascia oppure clicca per selezionare.", true);
+    setStatus("Select a PDF.", "Drag & drop or click to select.", true);
     return;
   }
 
@@ -876,13 +896,13 @@ $("go").onclick = async () => {
   try {
     // 1) Presign
     setSteps(0, false);
-    setStatus("1/4 • Preparazione upload…", "Richiedo una presigned URL.");
+    setStatus("1/4 • Preparing upload…", "Requesting a presigned URL.");
     const pres = await fetchJson("/presign");
 
     // 2) Upload S3 (fetch PUT: no Content-Type, preserviamo il fix)
     setSteps(1, true);
-    setStatus("2/4 • Upload su S3…", "Caricamento del PDF.");
-    $("progressLabel").textContent = "Upload…";
+    setStatus("2/4 • Uploading to S3…", "Sending the PDF.");
+    $("progressLabel").textContent = "Uploading…";
     barSet(25);
     // (fetch non espone progress nativo senza XHR; usiamo indeterminate)
     const put = await fetch(pres.upload_url, { method: "PUT", body: f });
@@ -892,7 +912,7 @@ $("go").onclick = async () => {
 
     // 3) Process
     setSteps(2, true);
-    setStatus("3/4 • Parsing + generazione Excel…", "Estrazione call/topic e creazione XLSX.");
+    setStatus("3/4 • Parsing + generating Excel…", "Extracting calls/topics and creating XLSX.");
     $("progressLabel").textContent = "Parsing…";
     barSet(50);
     startScanCounter();
@@ -904,8 +924,8 @@ $("go").onclick = async () => {
 
     // 4) Download presigned
     setSteps(3, true);
-    setStatus("4/4 • Preparazione download…", "Creo link di download sicuro (temporaneo).");
-    $("progressLabel").textContent = "Preparazione download…";
+    setStatus("4/4 • Preparing download…", "Creating a secure temporary download link.");
+    $("progressLabel").textContent = "Preparing download…";
     barSet(75);
     const dl = await fetchJson("/download", {
       method: "POST",
@@ -922,8 +942,8 @@ $("go").onclick = async () => {
     showResult(rows, state.downloadUrl);
     stopScanCounter(rows ?? 0);
 
-    setStatus("Completato ✅", "Download pronto. Se non parte automaticamente, usa il pulsante “Scarica Excel”.");
-    showToast("Excel pronto — download avviato.");
+    setStatus("Completed ✅", "Download ready. If it doesn't start, use “Download Excel”.");
+    showToast("Excel ready — download started.");
     // auto-download
     window.location = state.downloadUrl;
 
@@ -933,12 +953,12 @@ $("go").onclick = async () => {
     stopScanCounter(scanningCounter);
 
     const msg = (e && e.message) ? e.message : String(e);
-    let sub = "Riprova. Se persiste, controlla CORS S3 / permessi bucket / log Lambda.";
+    let sub = "Try again. If it persists, check S3 CORS / bucket permissions / Lambda logs.";
     if(e && e.status){
-      sub = "Dettaglio: HTTP " + e.status + ". " + sub;
+      sub = "Detail: HTTP " + e.status + ". " + sub;
     }
-    setStatus("Errore durante l’elaborazione.", msg + "\\n" + sub, true);
-    showToast("Elaborazione interrotta — riprova.");
+    setStatus("Error during processing.", msg + "\\n" + sub, true);
+    showToast("Processing interrupted — please retry.");
   } finally {
     setBusy(false);
   }
