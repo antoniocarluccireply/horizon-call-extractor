@@ -116,7 +116,7 @@ def _merge_split_identifier_lines(lines: List[str]) -> List[str]:
         ln = lines[i]
 
         # Case 1: trailing dash
-        if RE_SPLIT_ID_LINE.match(ln) and i + 1 < len(lines):
+        if RE_SPLIT_ID_LINE.search(ln) and i + 1 < len(lines):
             merged = _norm(ln + lines[i + 1].lstrip())
             out.append(merged)
             i += 2
@@ -348,8 +348,6 @@ def parse_calls(text: str) -> List[Dict]:
             "call_id": current_call_id,
             "topic_id": pending_topic_id,
             "topic_title": title_clean,
-            "topic_description": _norm(" ".join(pending_description_parts)) or None,
-            "topic_body": pending_body,
 
             "action_type": pending_action_type,
             "opening_date": current_opening,
@@ -360,7 +358,7 @@ def parse_calls(text: str) -> List[Dict]:
             "budget_per_project_min_eur_m": pending_per_min,
             "budget_per_project_max_eur_m": pending_per_max,
 
-            "trl": None,  # do not invent
+            "trl": None,
         }
 
         prev = best_by_topic.get(pending_topic_id)
@@ -525,7 +523,7 @@ def parse_calls(text: str) -> List[Dict]:
 
                         break
 
-                if not nxt.startswith("Destination - ") and not pending_description_parts:
+                if not nxt.startswith("Destination - ") and not pending_description_parts and not RE_SKIP_DESC.match(nxt):
                     pending_title_parts.append(nxt)
 
                 i += 1
@@ -540,5 +538,6 @@ def parse_calls(text: str) -> List[Dict]:
     rows = list(best_by_topic.values())
     rows.sort(key=lambda r: (r.get("call_id") or "", r.get("topic_id") or ""))
     return rows
+
 
 
