@@ -12,6 +12,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps into package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r aws_lambda/requirements.txt -t aws_lambda/
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
