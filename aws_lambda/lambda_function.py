@@ -2,6 +2,10 @@ import os
 import uuid
 import json
 import boto3
+import urllib.request
+import urllib.error
+import traceback
+import time
 from pypdf import PdfReader
 from openpyxl import Workbook
 
@@ -12,10 +16,24 @@ s3 = boto3.client(
     region_name="eu-central-1",
     endpoint_url="https://s3.eu-central-1.amazonaws.com",
 )
-BUCKET = os.environ["BUCKET_NAME"]
+
+BUCKET = os.environ.get("BUCKET_NAME", "")
+def _require_bucket():
+    if not BUCKET:
+        # Non blocchiamo la UI, ma blocchiamo le API che richiedono S3
+        raise RuntimeError("Missing env var BUCKET_NAME")
+
+# --- OpenAI (optional) ---
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")  # keep secret in Lambda env vars
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
+OPENAI_MAX_TOPICS = int(os.environ.get("OPENAI_MAX_TOPICS", "25"))
+OPENAI_BODY_MAX_CHARS = int(os.environ.get("OPENAI_BODY_MAX_CHARS", "6000"))
 
 
 def extract_text(pdf_path: str) -> str:
+    """
+    Extract text with explicit page markers so parser_horizon can set 'page'.
+    """
     reader = PdfReader(pdf_path)
     chunks = []
     for idx, p in enumerate(reader.pages, start=1):
@@ -34,22 +52,17 @@ def write_xlsx(rows, xlsx_path: str):
         "stage",
         "call_round",
         "page",
-
         "call_id",
         "topic_id",
         "topic_title",
-
         "action_type",
-
-        "opening_date",
-        "deadline_date",
-
+        "trl",
         "budget_eur_m",
-        "projects",
         "budget_per_project_min_eur_m",
         "budget_per_project_max_eur_m",
-
-        "trl",
+        "projects",
+        "opening_date",
+        "deadline_date",
     ]
     ws.append(headers)
 
@@ -59,6 +72,84 @@ def write_xlsx(rows, xlsx_path: str):
     wb.save(xlsx_path)
 
 
+# --- OpenAI helpers (Responses API) ---
+def _extract_output_text(resp_json: dict) -> str:
+    # Some responses include output_text directly
+    txt = (resp_json.get("output_text") or "").strip()
+    if txt:
+        return txt
+
+    # Otherwise parse output array
+    out = resp_json.get("output") or []
+    parts = []
+    for item in out:
+        content = item.get("content") or []
+        for c in content:
+            # depending on the exact shape, you may see output_text or text
+            if c.get("type") == "output_text" and c.get("text"):
+                parts.append(c["text"])
+            elif c.get("type") == "text" and c.get("text"):
+                parts.append(c["text"])
+    return "\n".join(p.strip() for p in parts if p and p.strip()).strip()
+
+
+def _openai_topic_description(topic_id: str, topic_title: str, body_text: str) -> str:
+    """
+    2-3 frasi in italiano, semplici, usando SOLO il testo del PDF.
+    Se insufficiente: "Descrizione non disponibile dal PDF"
+    """
+    if not OPENAI_API_KEY:
+        return ""
+
+    body_text = (body_text or "").strip()
+    if len(body_text) < 200:
+        return ""
+
+    if len(body_text) > OPENAI_BODY_MAX_CHARS:
+        body_text = body_text[:OPENAI_BODY_MAX_CHARS] + "\n[...TRONCATO...]"
+
+    instructions = (
+        "Sei un assistente che scrive una descrizione semplice di un topic Horizon Europe.\n"
+        "VINCOLI (importantissimo):\n"
+        "- Usa SOLO informazioni presenti nel testo fornito (estratto dal PDF).\n"
+        "- Non inventare nulla: niente numeri, date, budget o dettagli non presenti.\n"
+        "- Se il testo non contiene abbastanza info, rispondi ESATTAMENTE: \"Descrizione non disponibile dal PDF\".\n"
+        "- Output: 2-3 frasi in italiano, chiare e concrete, max ~80 parole.\n"
+    )
+
+    user_input = (
+        f"TOPIC ID: {topic_id}\n"
+        f"TITOLO: {topic_title}\n\n"
+        "TESTO (estratto dal PDF):\n"
+        f"{body_text}"
+    )
+
+    payload = {
+        "model": OPENAI_MODEL,
+        "instructions": instructions,
+        "input": user_input,
+        "store": False,
+    }
+
+    req = urllib.request.Request(
+        "https://api.openai.com/v1/responses",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            data = json.loads(r.read().decode("utf-8"))
+            return _extract_output_text(data)
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
+        return ""
+
+
+# --- HTML UI ---
 HTML = """<!doctype html>
 <html lang="it">
 <head>
@@ -571,7 +662,7 @@ async function fetchJson(url, opts){
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch(e) {}
   if(!res.ok){
-    const msg = (data && (data.error || data.message)) ? (data.error || data.message) : (text || ("HTTP " + res.status));
+    const msg = (data && (data.message || data.error)) ? (data.message || data.error) : (text || ("HTTP " + res.status));
     const err = new Error(msg);
     err.status = res.status;
     err.payload = data;
@@ -763,53 +854,72 @@ def _json(obj):
 
 
 def handler(event, context):
-    # Supporta sia invocazioni "dirette" (CLI) sia HTTP (Lambda URL)
-    if "requestContext" not in event:
-        key = event["pdf_key"]
-        return _process_pdf_key(key)
+    try:
+        # Supporta invocazioni "dirette" (CLI) e HTTP (Lambda URL)
+        if "requestContext" not in event:
+            key = event["pdf_key"]
+            return _process_pdf_key(key, context=context)
 
-    method = event.get("requestContext", {}).get("http", {}).get("method", "GET")
-    path = event.get("rawPath", "/")
+        method = event.get("requestContext", {}).get("http", {}).get("method", "GET")
+        path = event.get("rawPath", "/")
 
-    if method == "OPTIONS":
-        return _resp(200, "")
+        if method == "OPTIONS":
+            return _resp(200, "")
 
-    if method == "GET" and path == "/":
-        return _resp(200, HTML, content_type="text/html; charset=utf-8")
+        if method == "GET" and path == "/":
+            return _resp(200, HTML, content_type="text/html; charset=utf-8")
 
-    if method == "GET" and path == "/presign":
-        pdf_key = f"uploads/{uuid.uuid4()}.pdf"
-        upload_url = s3.generate_presigned_url(
-            "put_object",
-            Params={"Bucket": BUCKET, "Key": pdf_key},
-            ExpiresIn=900,
-        )
-        return _resp(200, _json({"upload_url": upload_url, "pdf_key": pdf_key}))
+        if method == "GET" and path == "/presign":
+            _require_bucket()
+            pdf_key = f"uploads/{uuid.uuid4()}.pdf"
+            upload_url = s3.generate_presigned_url(
+                "put_object",
+                Params={"Bucket": BUCKET, "Key": pdf_key},
+                ExpiresIn=900,
+            )
+            return _resp(200, _json({"upload_url": upload_url, "pdf_key": pdf_key}))
 
-    if method == "POST" and path == "/process":
-        body = event.get("body") or "{}"
-        data = json.loads(body)
-        pdf_key = data["pdf_key"]
-        result = _process_pdf_key(pdf_key)
-        if isinstance(result, dict) and "statusCode" not in result:
+        if method == "POST" and path == "/process":
+            _require_bucket()
+            body = event.get("body") or "{}"
+            data = json.loads(body)
+            pdf_key = data["pdf_key"]
+            result = _process_pdf_key(pdf_key, context=context)
             return _resp(200, _json(result))
-        return result
 
-    if method == "POST" and path == "/download":
-        body = event.get("body") or "{}"
-        data = json.loads(body)
-        excel_key = data["excel_key"]
-        download_url = s3.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": BUCKET, "Key": excel_key},
-            ExpiresIn=900,
+        if method == "POST" and path == "/download":
+            _require_bucket()
+            body = event.get("body") or "{}"
+            data = json.loads(body)
+            excel_key = data["excel_key"]
+            download_url = s3.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": BUCKET, "Key": excel_key},
+                ExpiresIn=900,
+            )
+            return _resp(200, _json({"download_url": download_url}))
+
+        return _resp(404, _json({"error": "not_found", "path": path, "method": method}))
+
+    except Exception as e:
+        # log completo su CloudWatch, ma rispondiamo con messaggio leggibile al browser
+        print("ERROR:", repr(e))
+        print(traceback.format_exc())
+
+        return _resp(
+          500,
+          _json({
+          "error": "internal",
+          "message": str(e),
+          "type": e.__class__.__name__,
+          "request_id": getattr(context, "aws_request_id", None),
+          }),
         )
-        return _resp(200, _json({"download_url": download_url}))
-
-    return _resp(404, _json({"error": "not_found", "path": path, "method": method}))
 
 
-def _process_pdf_key(key: str):
+def _process_pdf_key(key: str, context=None):
+    _require_bucket()
+
     local_pdf = f"/tmp/{uuid.uuid4()}.pdf"
     local_xlsx = f"/tmp/{uuid.uuid4()}.xlsx"
 
@@ -818,9 +928,45 @@ def _process_pdf_key(key: str):
     text = extract_text(local_pdf)
     rows = parse_calls(text)
 
+    # --- OpenAI descriptions (optional) ---
+    # Regola anti-timeout: se mancano < 8s, stop OpenAI.
+    if OPENAI_API_KEY and context is not None:
+        n = 0
+        for r in rows:
+            if n >= OPENAI_MAX_TOPICS:
+                break
+
+            # time budget
+            remaining_ms = context.get_remaining_time_in_millis()
+            if remaining_ms is not None and remaining_ms < 8000:
+                print(f"Stopping OpenAI: low remaining time {remaining_ms}ms")
+                break
+
+            body = (r.get("topic_body") or "").strip()
+            if not body:
+                continue
+
+            cur = (r.get("topic_description") or "").strip()
+            if len(cur) >= 80:
+                continue
+
+            desc = _openai_topic_description(
+                topic_id=r.get("topic_id") or "",
+                topic_title=r.get("topic_title") or "",
+                body_text=body,
+            )
+            if desc:
+                r["topic_description"] = desc
+                n += 1
+
+    # Don't export topic_body to Excel
+    for r in rows:
+        r.pop("topic_body", None)
+
     write_xlsx(rows, local_xlsx)
 
     out_key = key.rsplit(".", 1)[0] + ".xlsx"
     s3.upload_file(local_xlsx, BUCKET, out_key)
 
     return {"status": "ok", "excel_key": out_key, "rows": len(rows)}
+
