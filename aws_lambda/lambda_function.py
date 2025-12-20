@@ -264,20 +264,20 @@ HTML = """<!doctype html>
   <title>Horizon Call Extractor</title>
   <style>
     :root{
-      --bg:#f6f3ec;
-      --card:#ffffff;
-      --stroke:#d8d1c5;
-      --text:#211f1c;
-      --muted:#4f4a43;
-      --muted2:#7a746b;
+      --bg:#f9f2ec;
+      --card:rgba(255,255,255,0.94);
+      --stroke:rgba(255,255,255,0.55);
+      --text:#1f0f0f;
+      --muted:#5d2e2e;
+      --muted2:#7a4a4a;
 
-      --accent:#6b8b5f;   /* muted green */
-      --accent-strong:#4f7150;
+      --accent:#d9a441;   /* gold */
+      --accent-strong:#b97a24;
       --good:#2f855a;
       --warn:#d97706;
       --bad:#b23b3b;
 
-      --shadow: 0 12px 35px rgba(23,22,18,.12);
+      --shadow: 0 16px 40px rgba(0,0,0,.22);
       --radius: 16px;
     }
 
@@ -287,10 +287,43 @@ HTML = """<!doctype html>
       margin:0;
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
       color: var(--text);
-      background: radial-gradient(1200px 700px at 8% 5%, rgba(255, 170, 170, 0.55), transparent 45%),
-        radial-gradient(1000px 600px at 85% 15%, rgba(240, 90, 90, 0.4), transparent 55%),
-        linear-gradient(180deg, #ffe7e7, #fbd4d4);
+      background: radial-gradient(900px 600px at 12% 8%, rgba(255, 215, 170, 0.25), transparent 55%),
+        radial-gradient(1100px 720px at 85% 12%, rgba(255, 255, 255, 0.14), transparent 60%),
+        radial-gradient(1200px 900px at 50% -5%, rgba(196, 44, 44, 0.4), transparent 58%),
+        linear-gradient(180deg, #741919, #8f1f1f 40%, #5c0f0f);
+      position: relative;
       overflow-x:hidden;
+    }
+    body::before{
+      content:"";
+      position: fixed;
+      inset: 0;
+      background-image:
+        radial-gradient(18px 18px at 10% 14%, rgba(255,255,255,.35), transparent 62%),
+        radial-gradient(22px 22px at 88% 8%, rgba(255,225,200,.32), transparent 60%),
+        radial-gradient(16px 16px at 16% 85%, rgba(221, 186, 84, .25), transparent 70%),
+        radial-gradient(14px 14px at 82% 80%, rgba(255,255,255,.32), transparent 68%);
+      pointer-events: none;
+      mix-blend-mode: screen;
+      opacity: .8;
+      filter: drop-shadow(0 10px 18px rgba(0,0,0,.15));
+    }
+    body::after{
+      content:"";
+      position: fixed;
+      inset: 0;
+      background-image:
+        radial-gradient(1.5px 1.5px at 12% 18%, rgba(255,255,255,.7), transparent 60%),
+        radial-gradient(1.5px 1.5px at 32% 32%, rgba(255,255,255,.6), transparent 60%),
+        radial-gradient(1.7px 1.7px at 68% 22%, rgba(255,255,255,.8), transparent 60%),
+        radial-gradient(1.5px 1.5px at 82% 46%, rgba(255,255,255,.65), transparent 60%),
+        radial-gradient(1.5px 1.5px at 55% 78%, rgba(255,255,255,.55), transparent 60%),
+        radial-gradient(1.5px 1.5px at 25% 62%, rgba(255,255,255,.5), transparent 60%),
+        radial-gradient(1.5px 1.5px at 75% 12%, rgba(255,255,255,.65), transparent 60%),
+        radial-gradient(1.5px 1.5px at 46% 12%, rgba(255,255,255,.6), transparent 60%);
+      background-size: 260px 260px;
+      pointer-events: none;
+      opacity: .6;
     }
 
     .wrap{
@@ -305,7 +338,12 @@ HTML = """<!doctype html>
       justify-content:flex-start;
       gap:16px;
       margin-bottom: 18px;
-      padding: 8px 6px;
+      padding: 12px 12px;
+      background: rgba(255,255,255,0.92);
+      border-radius: calc(var(--radius) + 4px);
+      border: 1px solid var(--stroke);
+      box-shadow: 0 12px 30px rgba(0,0,0,.18);
+      backdrop-filter: blur(8px);
     }
 
     .brand{
@@ -319,7 +357,11 @@ HTML = """<!doctype html>
       width: 112px;
       height: auto;
       display:block;
-      border-radius: 10px;
+      border-radius: 12px;
+      background: #ffffff;
+      padding: 10px 12px;
+      box-shadow: 0 10px 26px rgba(0,0,0,.18);
+      border: 1px solid rgba(255,255,255,.8);
     }
 
     .brand h1{
