@@ -287,7 +287,7 @@
             <option value="">Any</option>
             <option value="RA">RA — Research Actions</option>
             <option value="DA">DA — Development Actions</option>
-            <option value="LS">LS — Large-scale projects</option>
+            <option value="CSA">CSA — Coordination & Support Actions</option>
           </select>
           <div class="hint">Matches the call prefix (e.g., EDF-2024-RA-…)</div>
         </div>
@@ -363,6 +363,11 @@
   <script>
     const $ = (id) => document.getElementById(id);
     const ACTION_TYPES = ["RIA","IA","CSA","PCP","PPI","COFUND","ERC","MSCA","EIC-PATHFINDER","EIC-TRANSITION","EIC-ACCELERATOR"];
+    const EDF_CALL_FAMILY_LABELS = {
+      RA: "RA — Research Actions",
+      DA: "DA — Development Actions",
+      CSA: "CSA — Coordination & Support Actions",
+    };
     const state = {
       activeTab: "horizon",
       tabs: {
@@ -589,6 +594,20 @@
       return "—";
     }
 
+    function formatCallFamilyDisplay(callFamily, callFamilyDisplay){
+      const label = callFamilyDisplay || EDF_CALL_FAMILY_LABELS[callFamily];
+      if(label) return label;
+      if(callFamily) return callFamily;
+      return "—";
+    }
+
+    function formatScale(isLargeScale, scale){
+      if(typeof scale === "string" && scale.trim()) return scale;
+      if(isLargeScale === true) return "Large-scale";
+      if(isLargeScale === false) return "Standard";
+      return "—";
+    }
+
     function appendSummaryLabel(el, previewText){
       const label = document.createElement("span");
       label.textContent = "Topic description (verbatim)";
@@ -697,9 +716,11 @@
           card.appendChild(title);
 
           const grid = document.createElement("div"); grid.className = "row-grid";
+          const callFamilyDisplay = formatCallFamilyDisplay(r.call_family, r.call_family_display);
           const fields = [
             ["Call ID", r.call_id || "—"],
-            ["Call family", r.call_family || "—"],
+            ["Call family", callFamilyDisplay],
+            ["Scale", formatScale(r.is_large_scale, r.scale)],
             ["Type of action", r.type_of_action || "—"],
             ["Indicative budget (M€)", formatBudget(r.indicative_budget_eur_m)],
             ["Call indicative budget (M€)", formatBudget(r.call_indicative_budget_eur_m)],
