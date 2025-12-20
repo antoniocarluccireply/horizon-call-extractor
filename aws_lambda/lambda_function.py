@@ -245,8 +245,9 @@ def _process_pdf_keys(
             if r["call_type"] and r["call_type"] not in call_types_meta:
                 call_types_meta[r["call_type"]] = r["funding_percentage"]
 
+        rows = [r for r in all_rows if r.get("record_level") == "TOPIC"]
         rows = filter_edf_rows(
-            all_rows,
+            rows,
             call_family=call_family,
             budget_min_m=budget_min,
             budget_max_m=budget_max,
@@ -263,7 +264,7 @@ def _process_pdf_keys(
             doc_type=detected_type,
         )
 
-        write_xlsx(rows, local_xlsx, DOC_EDF)
+        write_xlsx(rows + [r for r in all_rows if r.get("record_level") == "CALL"], local_xlsx, DOC_EDF)
 
         safe_base = _safe_base_name(original_names[0] if original_names else pdf_keys[0])
         if len(pdf_keys) > 1:
@@ -280,9 +281,14 @@ def _process_pdf_keys(
 
             display_rows.append(
                 {
+                    "record_level": r.get("record_level"),
+                    "call_id": r.get("call_id"),
+                    "topic_id": r.get("topic_id"),
                     "topic_id": r.get("topic_id"),
                     "topic_url": _topic_url(r.get("topic_id")),
                     "topic_title": r.get("topic_title"),
+                    "title": r.get("title"),
+                    "section_no": r.get("section_no"),
                     "budget_per_project_min_eur_m": r.get("budget_per_project_min_eur_m"),
                     "opening_date": r.get("opening_date"),
                     "deadline_date": r.get("deadline_date"),
@@ -493,11 +499,14 @@ def _write_edf_xlsx(rows, xlsx_path: str):
     ws.title = "edf"
 
     headers = [
+        "record_level",
         "call_id",
         "call_family",
         "call_family_display",
         "topic_id",
+        "title",
         "topic_title",
+        "section_no",
         "type_of_action",
         "funding_percentage",
         "budget_per_project_min_eur_m",
