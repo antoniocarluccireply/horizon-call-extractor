@@ -8,11 +8,18 @@ CALL_FAMILY_LABELS = {
 }
 
 RE_TOPIC_LINE = re.compile(
-    r"^\s*(?:\d+(?:\.\d+)*\.)?\s*(EDF-\d{4}-[A-Z]{2,}(?:-[A-Z0-9]+)+)\s*:\s*(.+?)\s*$",
+    r"^\s*(?:(\d+(?:\.\d+)*)(?:\.)?)?\s*(EDF-\d{4}-[A-Z]{2,}(?:-[A-Z0-9]+)+)\s*:\s*(.+?)\s*$",
     flags=re.IGNORECASE,
 )
 
-RE_TOPIC_ONLY = re.compile(r"\b(EDF-\d{4}-[A-Z]{2,}(?:-[A-Z0-9]+)+)\b", flags=re.IGNORECASE)
+RE_TOPIC_ONLY = re.compile(
+    r"^\s*(?:(\d+(?:\.\d+)*)(?:\.)?)?\s*(EDF-\d{4}-[A-Z]{2,}(?:-[A-Z0-9]+)+)\s*$",
+    flags=re.IGNORECASE,
+)
+RE_CALL_LINE = re.compile(
+    r"^\s*(?:(\d+(?:\.\d+)*)(?:\.)?)?\s*Call\s+(EDF-\d{4}-[A-Z]{2,})\b[:\-]?\s*(.*)$",
+    flags=re.IGNORECASE,
+)
 RE_CALL = re.compile(r"\b(EDF-\d{4}-[A-Z]{2,})\b", flags=re.IGNORECASE)
 TOC_START = re.compile(r"\bTable of contents\b", re.IGNORECASE)
 TOC_END = re.compile(r"^\s*1\.\s*Content of the document\b", re.IGNORECASE)
@@ -172,15 +179,17 @@ def _extract_funding_percentage(line: str) -> Optional[float]:
 
 def parse_edf(text: str) -> List[Dict]:
     """
-    Extract EDF topics with a lightweight heuristic parser.
-    Fields: call_id, topic_id, topic_title, type_of_action, indicative_budget_eur_m,
-    call_indicative_budget_eur_m, number_of_actions, call_family, step,
-    topic_description_verbatim, is_large_scale.
+    Extract EDF calls and topics with a lightweight heuristic parser.
+    Fields include record_level (CALL|TOPIC), call_id, topic_id, title, section_no,
+    type_of_action, indicative budgets, call_family, step, and verbatim description.
     """
     raw_lines = (text or "").splitlines()
 
-    topics: List[Dict] = []
+    records: List[Dict] = []
     current: Optional[Dict] = None
+    current_call_id: Optional[str] = None
+    current_call_section: Optional[str] = None
+    current_call_record: Optional[Dict] = None
     in_toc = False
 
     def _call_family_topic(tid: str) -> Optional[str]:
@@ -192,22 +201,26 @@ def parse_edf(text: str) -> List[Dict]:
             return "-".join(parts[:3]).upper()
         return None
 
-    def ensure_current(topic_id: str, title: str = "", awaiting_title: bool = False):
+    def ensure_current(topic_id: str, title: str = "", awaiting_title: bool = False, section_no: Optional[str] = None):
         nonlocal current
         if current:
             current["_in_desc"] = False
         cleaned_title = _clean_title(title)
         if _is_bad_title(cleaned_title):
             cleaned_title = ""
+        call_id = current_call_id or _call_family_topic(topic_id)
         current = {
-            "call_id": _call_family_topic(topic_id),
+            "record_level": "TOPIC",
+            "call_id": call_id,
             "topic_id": topic_id,
             "topic_title": cleaned_title,
+            "title": cleaned_title or topic_id,
+            "section_no": section_no,
             "type_of_action": "",
             "indicative_budget_eur_m": None,
             "call_indicative_budget_eur_m": None,
             "number_of_actions": None,
-            "call_family": _extract_call_family(_call_family_topic(topic_id)),
+            "call_family": _extract_call_family(call_id),
             "step": None,
             "page": None,
             "topic_description_verbatim": "",
@@ -218,7 +231,7 @@ def parse_edf(text: str) -> List[Dict]:
             "_in_desc": False,
             "_awaiting_title": awaiting_title or not cleaned_title,
         }
-        topics.append(current)
+        records.append(current)
 
     for raw_ln in raw_lines:
         ln = _norm(raw_ln)
@@ -232,19 +245,53 @@ def parse_edf(text: str) -> List[Dict]:
         if in_toc:
             continue
 
+        # Call header (section + call id + optional title)
+        m_call_line = RE_CALL_LINE.match(ln)
+        if m_call_line:
+            section_no = m_call_line.group(1)
+            call_id = m_call_line.group(2).upper()
+            call_title = _clean_title(m_call_line.group(3)) or call_id
+
+            current_call_id = call_id
+            current_call_section = section_no
+            current_call_record = {
+                "record_level": "CALL",
+                "call_id": call_id,
+                "topic_id": None,
+                "topic_title": "",
+                "title": call_title,
+                "section_no": section_no,
+                "type_of_action": "",
+                "indicative_budget_eur_m": None,
+                "call_indicative_budget_eur_m": None,
+                "number_of_actions": None,
+                "call_family": _extract_call_family(call_id),
+                "step": None,
+                "page": None,
+                "topic_description_verbatim": "",
+                "is_large_scale": _is_large_scale(call_id, None, call_title, ""),
+                "funding_percentage": None,
+                "opening_date": None,
+                "deadline_date": None,
+            }
+            records.append(current_call_record)
+            continue
+
         # Topic header with inline title
         m_line = RE_TOPIC_LINE.match(ln)
         if m_line:
-            topic_id = m_line.group(1).upper()
-            title = m_line.group(2)
-            ensure_current(topic_id, title)
+            section_no = m_line.group(1)
+            topic_id = m_line.group(2).upper()
+            title = m_line.group(3)
+            ensure_current(topic_id, title, section_no=section_no)
             continue
 
         # Topic header without inline title
         m_topic = RE_TOPIC_ONLY.search(ln)
         if m_topic:
-            topic_id = m_topic.group(1).upper()
-            ensure_current(topic_id, "", awaiting_title=True)
+            section_no = m_topic.group(1)
+            topic_id = m_topic.group(2 if m_topic.lastindex and m_topic.lastindex >= 2 else 1).upper()
+            ensure_current(topic_id, "", awaiting_title=True, section_no=section_no)
             continue
 
         if current is None:
@@ -265,7 +312,10 @@ def parse_edf(text: str) -> List[Dict]:
         # Budget separation (topic vs call)
         call_budget = _extract_call_budget_eur_m(ln)
         if call_budget is not None:
-            current["call_indicative_budget_eur_m"] = call_budget
+            if current_call_record is not None:
+                current_call_record["call_indicative_budget_eur_m"] = call_budget
+            if current is not None:
+                current["call_indicative_budget_eur_m"] = call_budget
 
         topic_budget = _extract_topic_budget_eur_m(ln)
         if topic_budget is not None:
@@ -330,12 +380,15 @@ def parse_edf(text: str) -> List[Dict]:
                 current["topic_title"] = candidate
                 current["_awaiting_title"] = False
 
-    for t in topics:
+    for t in records:
         t.pop("_in_desc", None)
         t.pop("_awaiting_title", None)
         call_id = t.get("call_id")
         topic_id = t.get("topic_id")
-        t["call_family"] = _extract_call_family(call_id) or _extract_call_family(topic_id)
-        t["is_large_scale"] = _is_large_scale(call_id, topic_id, t.get("topic_title", ""), t.get("topic_description_verbatim", ""))
+        t["call_family"] = t.get("call_family") or _extract_call_family(call_id) or _extract_call_family(topic_id)
+        t["record_level"] = t.get("record_level") or "TOPIC"
+        if "title" not in t:
+            t["title"] = t.get("topic_title") or t.get("call_id") or t.get("topic_id")
+        t["is_large_scale"] = _is_large_scale(call_id, topic_id, t.get("title", ""), t.get("topic_description_verbatim", ""))
 
-    return topics
+    return records
