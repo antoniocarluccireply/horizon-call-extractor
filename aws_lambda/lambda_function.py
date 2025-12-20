@@ -133,11 +133,15 @@ def write_xlsx(rows, xlsx_path: str):
 def _parse_date(s: str):
     """
     Parse YYYY, YYYY-MM, or YYYY-MM-DD into a date object.
+    Also supports textual dates like "23 Sep 2026" or "23 September 2026".
     Returns None when parsing fails.
     """
     txt = (s or "").strip()
     if not txt:
         return None
+
+    # Remove trailing punctuation that often appears in PDF extracts
+    txt = txt.rstrip(".,;")
 
     m_full = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", txt)
     if m_full:
@@ -160,6 +164,53 @@ def _parse_date(s: str):
         y = int(m_year.group(1))
         try:
             return date(y, 12, 31)
+        except ValueError:
+            return None
+
+    m_day_name = re.match(r"^(\d{1,2})\s+([A-Za-z]{3,})\.?,?\s+(\d{4})$", txt)
+    if m_day_name:
+        day = int(m_day_name.group(1))
+        mon_raw = m_day_name.group(2).strip().lower().rstrip(".")
+        year = int(m_day_name.group(3))
+        months = {
+            "jan": 1, "january": 1,
+            "feb": 2, "february": 2,
+            "mar": 3, "march": 3,
+            "apr": 4, "april": 4,
+            "may": 5,
+            "jun": 6, "june": 6,
+            "jul": 7, "july": 7,
+            "aug": 8, "august": 8,
+            "sep": 9, "sept": 9, "september": 9,
+            "oct": 10, "october": 10,
+            "nov": 11, "november": 11,
+            "dec": 12, "december": 12,
+            # Italian month names (PDFs sometimes localized)
+            "gen": 1, "gennaio": 1,
+            "febbraio": 2,
+            "marzo": 3,
+            "aprile": 4,
+            "maggio": 5,
+            "giugno": 6,
+            "luglio": 7,
+            "agosto": 8,
+            "settembre": 9,
+            "ottobre": 10,
+            "novembre": 11,
+            "dicembre": 12,
+        }
+        mo = months.get(mon_raw)
+        if mo:
+            try:
+                return date(year, mo, day)
+            except ValueError:
+                return None
+
+    m_day_slash = re.match(r"^(\d{1,2})[./](\d{1,2})[./](\d{4})$", txt)
+    if m_day_slash:
+        d, mo, y = int(m_day_slash.group(1)), int(m_day_slash.group(2)), int(m_day_slash.group(3))
+        try:
+            return date(y, mo, d)
         except ValueError:
             return None
 
@@ -927,11 +978,9 @@ HTML = """<!doctype html>
       color: var(--text);
     }
     .recap-value.desc{
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
+      display: block;
       white-space: normal;
+      overflow: visible;
     }
     .recap-actions{
       margin-top: 10px;
@@ -1025,12 +1074,12 @@ HTML = """<!doctype html>
         <div class="filter">
           <div class="filterlabel">Opening date</div>
           <input class="textinput" id="openFilter" type="text" placeholder="e.g. 2026 or 2026-Q1 or 2026-05" aria-label="Filter by opening date"/>
-          <div class="filterhint">Year, quarter (YYYY-Q1), month (YYYY-MM), or exact day (YYYY-MM-DD). Upper bound: dates up to the end of the period.</div>
+          <div class="filterhint">Year, quarter (YYYY-Q1), month (YYYY-MM), exact day (YYYY-MM-DD), or text dates (e.g. 23 Sep 2026). Upper bound: dates up to the end of the period.</div>
         </div>
         <div class="filter">
           <div class="filterlabel">Deadline date</div>
           <input class="textinput" id="deadlineFilter" type="text" placeholder="e.g. 2027 or 2027-Q4 or 2027-11-15" aria-label="Filter by deadline date"/>
-          <div class="filterhint">Year, quarter (YYYY-Qx), month (YYYY-MM), or exact day (YYYY-MM-DD). Year/period filters return all deadlines on or before the end of that period.</div>
+          <div class="filterhint">Year, quarter (YYYY-Qx), month (YYYY-MM), exact day (YYYY-MM-DD), or text dates (e.g. 23 Sep 2026). Year/period filters return all deadlines on or before the end of that period.</div>
         </div>
       </div>
 

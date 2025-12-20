@@ -54,6 +54,15 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+def _fix_inline_hyphen_spacing(s: str) -> str:
+    """
+    Collapse stray spaces that appear before hyphens inside words, e.g. "gender -based" -> "gender-based".
+    Does not touch spaced dashes like "transition - how".
+    """
+    if not s:
+        return s
+    return re.sub(r"(\w)\s+-([A-Za-z0-9])", r"\1-\2", s)
+
 def _strip_dot_leader_page(s: str) -> Tuple[str, Optional[int]]:
     if not s:
         return s, None
@@ -346,6 +355,7 @@ def parse_calls(text: str) -> List[Dict]:
 
         title_raw = _norm(" ".join(pending_title_parts))
         title_clean, title_page = _strip_dot_leader_page(title_raw)
+        title_clean = _fix_inline_hyphen_spacing(title_clean)
 
         page = current_page or pending_page or title_page or current_cluster_page
 
@@ -553,4 +563,3 @@ def parse_calls(text: str) -> List[Dict]:
     rows = list(best_by_topic.values())
     rows.sort(key=lambda r: (r.get("call_id") or "", r.get("topic_id") or ""))
     return rows
-
