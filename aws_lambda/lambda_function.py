@@ -79,6 +79,15 @@ def _compute_budget_per_project_m(row):
     return None
 
 
+def _matches_prefix(value: str, prefix: str) -> bool:
+    pref = (prefix or "").strip()
+    if not pref:
+        return True
+    if value is None:
+        return False
+    return str(value).strip().lower().startswith(pref.lower())
+
+
 def write_xlsx(rows, xlsx_path: str):
     wb = Workbook()
     ws = wb.active
@@ -119,7 +128,13 @@ def write_xlsx(rows, xlsx_path: str):
     wb.save(xlsx_path)
 
 
-def filter_rows(rows, action_types=None, min_budget_m: float = None):
+def filter_rows(
+    rows,
+    action_types=None,
+    min_budget_m: float = None,
+    opening_filter: str = "",
+    deadline_filter: str = "",
+):
     allowed = None
     if action_types:
         allowed = {str(t).upper() for t in action_types if str(t).strip()}
@@ -141,6 +156,12 @@ def filter_rows(rows, action_types=None, min_budget_m: float = None):
                 budget_val = 0.0
             if budget_val < min_budget_m:
                 continue
+
+        if not _matches_prefix(r.get("opening_date"), opening_filter):
+            continue
+
+        if not _matches_prefix(r.get("deadline_date"), deadline_filter):
+            continue
 
         filtered.append(r)
 
@@ -344,6 +365,27 @@ HTML = """<!doctype html>
       grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
       gap: 12px;
       align-items:flex-start;
+    }
+    .textinput{
+      width: 100%;
+      border: 1px solid #d9d1c4;
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      font-size: 14px;
+      background: #fffdfa;
+      color: var(--text);
+      box-sizing: border-box;
+    }
+    .textinput:disabled{
+      background: #f4f0e8;
+      color: var(--muted);
+      cursor: not-allowed;
+    }
+    .filterhint{
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
     }
     .filterlabel{
       color: var(--muted);
@@ -828,6 +870,16 @@ HTML = """<!doctype html>
             <div class="sliderlabels"><span>0</span><span>15+ M€</span></div>
           </div>
         </div>
+        <div class="filter">
+          <div class="filterlabel">Opening date</div>
+          <input class="textinput" id="openFilter" type="text" placeholder="e.g. 2024 or 2024-Q1 or 2024-05" aria-label="Filter by opening date"/>
+          <div class="filterhint">Year, quarter (YYYY-Q1), month (YYYY-MM), or exact day (YYYY-MM-DD).</div>
+        </div>
+        <div class="filter">
+          <div class="filterlabel">Deadline date</div>
+          <input class="textinput" id="deadlineFilter" type="text" placeholder="e.g. 2024 or 2024-Q4 or 2024-11-15" aria-label="Filter by deadline date"/>
+          <div class="filterhint">Year, quarter (YYYY-Qx), month (YYYY-MM), or exact day (YYYY-MM-DD).</div>
+        </div>
       </div>
 
       <div class="dropzone" id="dz">
@@ -879,7 +931,7 @@ HTML = """<!doctype html>
 
   <div class="recap card" id="recapWrap" style="display:none;">
     <h3>Recap</h3>
-    <p class="recap-sub">After generation, the first topics are shown below with key details (ID, action/type, description, budget, opening/deadline).</p>
+    <p class="recap-sub">After generation, the first topics are shown below with key details (ID, title, action/type, budget, opening/deadline).</p>
     <div class="recap-grid" id="recapGrid"></div>
     <div class="recap-actions">
       <button class="btn ghost" type="button" id="recapMore" style="display:none;">Show more</button>
@@ -897,6 +949,8 @@ const state = {
   downloadUrl: null,
   selectedTypes: new Set(), // empty = all types (no filter)
   minBudget: 0,
+  openingFilter: "",
+  deadlineFilter: "",
   recapRows: [],
   showAllRecap: false,
 };
@@ -978,6 +1032,8 @@ function setFiltersDisabled(disabled){
   $("typeNone").disabled = disabled;
   document.querySelectorAll("#typeList input[type=checkbox]").forEach(inp => inp.disabled = disabled);
   $("budget").disabled = disabled;
+  $("openFilter").disabled = disabled;
+  $("deadlineFilter").disabled = disabled;
   if(disabled){
     $("typeMenu").classList.remove("open");
   }
@@ -1111,12 +1167,12 @@ function renderRecap(){
 
     const descEl = document.createElement("div");
     descEl.className = "recap-value desc";
-    descEl.textContent = r.topic_description || "—";
+    descEl.textContent = r.topic_title || "—";
     const descRow = document.createElement("div");
     descRow.className = "recap-row";
     const descLabel = document.createElement("div");
     descLabel.className = "recap-label";
-    descLabel.textContent = "Topic description";
+    descLabel.textContent = "Topic title";
     descRow.appendChild(descLabel);
     descRow.appendChild(descEl);
     card.appendChild(descRow);
@@ -1266,6 +1322,12 @@ document.addEventListener("click", (e) => {
 });
 
 $("budget").addEventListener("input", (e) => setBudget(e.target.value));
+$("openFilter").addEventListener("input", (e) => {
+  state.openingFilter = (e.target.value || "").trim();
+});
+$("deadlineFilter").addEventListener("input", (e) => {
+  state.deadlineFilter = (e.target.value || "").trim();
+});
 
 $("downloadBtn").onclick = () => {
   if(state.downloadUrl) window.location = state.downloadUrl;
@@ -1313,6 +1375,8 @@ $("go").onclick = async () => {
         action_types: Array.from(state.selectedTypes),
         min_budget_m: state.minBudget,
         original_name: state.file?.name || "",
+        opening_filter: state.openingFilter,
+        deadline_filter: state.deadlineFilter,
       })
     });
 
@@ -1395,11 +1459,15 @@ def handler(event, context):
             if min_budget_m is None:
                 min_budget_m = DEFAULT_MIN_BUDGET_M
             original_name = event.get("original_name") or ""
+            opening_filter = event.get("opening_filter") or ""
+            deadline_filter = event.get("deadline_filter") or ""
             return _process_pdf_key(
                 key,
                 context=context,
                 action_types=action_types,
                 min_budget_m=min_budget_m,
+                opening_filter=opening_filter,
+                deadline_filter=deadline_filter,
                 original_name=original_name,
             )
 
@@ -1432,11 +1500,15 @@ def handler(event, context):
             if min_budget_m is None:
                 min_budget_m = DEFAULT_MIN_BUDGET_M
             original_name = data.get("original_name") or ""
+            opening_filter = data.get("opening_filter") or ""
+            deadline_filter = data.get("deadline_filter") or ""
             result = _process_pdf_key(
                 pdf_key,
                 context=context,
                 action_types=action_types,
                 min_budget_m=min_budget_m,
+                opening_filter=opening_filter,
+                deadline_filter=deadline_filter,
                 original_name=original_name,
             )
             return _resp(200, _json(result))
@@ -1476,6 +1548,8 @@ def _process_pdf_key(
     context=None,
     action_types=None,
     min_budget_m=None,
+    opening_filter: str = "",
+    deadline_filter: str = "",
     original_name: str = "",
 ):
     _require_bucket()
@@ -1495,7 +1569,13 @@ def _process_pdf_key(
         r["budget_per_project_min_eur_m"] = derived_budget
         r["budget_per_project_m"] = derived_budget
 
-    rows = filter_rows(rows, action_types=action_types, min_budget_m=min_budget_m)
+    rows = filter_rows(
+        rows,
+        action_types=action_types,
+        min_budget_m=min_budget_m,
+        opening_filter=opening_filter,
+        deadline_filter=deadline_filter,
+    )
 
     # --- OpenAI descriptions (optional) ---
     # Regola anti-timeout: se mancano < 8s, stop OpenAI.
@@ -1558,9 +1638,9 @@ def _process_pdf_key(
             {
                 "topic_id": r.get("topic_id"),
                 "topic_url": _topic_url(r.get("topic_id")),
+                "topic_title": r.get("topic_title") or "",
                 "action_type": r.get("action_type"),
                 "type": r.get("stage") or r.get("call_round"),
-                "topic_description": r.get("topic_description") or "",
                 "budget_per_project_min_eur_m": r.get("budget_per_project_min_eur_m"),
                 "opening_date": r.get("opening_date"),
                 "deadline_date": r.get("deadline_date"),
