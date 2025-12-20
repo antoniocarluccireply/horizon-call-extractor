@@ -218,6 +218,9 @@
     .accordion[open] summary{ border-bottom:1px solid #e6dbcd; background:#f7f1e6; border-radius:12px 12px 0 0; }
     .accordion-body{ padding: 10px 12px 12px; }
     .rawtext{ white-space: pre-wrap; font-family: "SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace; font-size: 13px; color:#2f241c; }
+    .desc-summary{ display:flex; gap: 8px; flex-wrap: wrap; align-items:center; }
+    .desc-preview{ color: var(--muted2); font-size: 12px; font-weight: 500; }
+    .desc-body{ white-space: pre-wrap; line-height:1.35; font-size: 13px; color:#2f241c; }
     @media (max-width: 760px){
       .wrap{ padding: 0 16px; }
       .filters{ grid-template-columns: 1fr; }
@@ -586,6 +589,19 @@
       return "—";
     }
 
+    function appendSummaryLabel(el, previewText){
+      const label = document.createElement("span");
+      label.textContent = "Topic description (verbatim)";
+      el.appendChild(label);
+      const clean = (previewText || "").replace(/\s+/g, " ").trim();
+      if(!clean) return;
+      const snippet = clean.length > 140 ? `${clean.slice(0, 140).trim()}…` : clean;
+      const preview = document.createElement("span");
+      preview.className = "desc-preview";
+      preview.textContent = `– ${snippet}`;
+      el.appendChild(preview);
+    }
+
     function renderResults(tab){
       const res = state.results[tab];
       $("rows").textContent = String(res.rowsCount || res.rows.length || 0);
@@ -647,7 +663,7 @@
           card.appendChild(grid);
           const accordion = document.createElement("details");
           accordion.className = "accordion";
-          const summary = document.createElement("summary"); summary.textContent = "Testo estratto";
+          const summary = document.createElement("summary"); summary.className = "desc-summary"; appendSummaryLabel(summary, "");
           const body = document.createElement("div"); body.className = "accordion-body";
           const raw = document.createElement("div"); raw.className = "rawtext";
           raw.textContent = [
@@ -686,6 +702,7 @@
             ["Call family", r.call_family || "—"],
             ["Type of action", r.type_of_action || "—"],
             ["Indicative budget (M€)", formatBudget(r.indicative_budget_eur_m)],
+            ["Call indicative budget (M€)", formatBudget(r.call_indicative_budget_eur_m)],
             ["Number of actions", r.number_of_actions ?? "—"],
             ["STEP", formatStepValue(r.step)],
           ];
@@ -698,18 +715,12 @@
           card.appendChild(grid);
           const accordion = document.createElement("details");
           accordion.className = "accordion";
-          const summary = document.createElement("summary"); summary.textContent = "Testo estratto";
+          const summary = document.createElement("summary"); summary.className = "desc-summary"; appendSummaryLabel(summary, r.topic_description_verbatim);
           const body = document.createElement("div"); body.className = "accordion-body";
-          const raw = document.createElement("div"); raw.className = "rawtext";
-          raw.textContent = [
-            `Call: ${r.call_id || "—"}`,
-            `Topic ID: ${r.topic_id || "—"}`,
-            `Titolo: ${r.topic_title || "—"}`,
-            `Azione: ${r.type_of_action || "—"}`,
-            `Budget indicativo: ${formatBudget(r.indicative_budget_eur_m)}`,
-            `STEP: ${formatStepValue(r.step)}`
-          ].join("\n");
-          body.appendChild(raw);
+          const desc = document.createElement("div"); desc.className = "desc-body";
+          const descText = (r.topic_description_verbatim || "").trim();
+          desc.textContent = descText || "—";
+          body.appendChild(desc);
           accordion.appendChild(summary); accordion.appendChild(body);
           card.appendChild(accordion);
           box.appendChild(card);
