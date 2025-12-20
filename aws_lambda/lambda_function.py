@@ -426,8 +426,8 @@ HTML = """<!doctype html>
   <style>
     :root{
       --bg:#f9f2ec;
-      --card:rgba(255,255,255,0.94);
-      --stroke:rgba(255,255,255,0.55);
+      --card:rgba(255,255,255,0.96);
+      --stroke:rgba(255,255,255,0.7);
       --text:#1f0f0f;
       --muted:#5d2e2e;
       --muted2:#7a4a4a;
@@ -440,6 +440,9 @@ HTML = """<!doctype html>
 
       --shadow: 0 16px 40px rgba(0,0,0,.22);
       --radius: 16px;
+
+      --hat-img: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%20160%20120%27%3E%3Cpath%20fill%3D%27%23c51235%27%20d%3D%27M12%20114%20L76%2010%20L152%20114%20Z%27/%3E%3Cpath%20fill%3D%27%23d93954%27%20d%3D%27M76%2010%20L130%20114%20L152%20114%20Z%27/%3E%3Crect%20x%3D%2724%27%20y%3D%2792%27%20width%3D%27112%27%20height%3D%2720%27%20rx%3D%2710%27%20fill%3D%27%23f7f2ec%27/%3E%3Ccircle%20cx%3D%2780%27%20cy%3D%2722%27%20r%3D%2715%27%20fill%3D%27%23f7f2ec%27/%3E%3Ccircle%20cx%3D%2758%27%20cy%3D%2786%27%20r%3D%2711%27%20fill%3D%27%23d93954%27%20opacity%3D%270.3%27/%3E%3C/svg%3E");
+      --reindeer-img: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%20160%20120%27%3E%3Cpath%20fill%3D%27%23f5c77d%27%20d%3D%27M14%2074c18-16%2032-20%2044-20%2016%200%2027%208%2036%208%2010%200%2018-8%2030-20l22%208-14%2014c7%208%207%2018-1%2024s-24%208-34-4c-4%2010-14%2018-28%2018-20%200-32-12-32-30%200-8%203-18%207-24l-18%206c-8%202-16%2010-20%2020z%27/%3E%3Ccircle%20cx%3D%27120%27%20cy%3D%2736%27%20r%3D%278%27%20fill%3D%27%23f7f2ec%27/%3E%3Ccircle%20cx%3D%27118%27%20cy%3D%2734%27%20r%3D%273%27%20fill%3D%27%23c51235%27/%3E%3Cpath%20fill%3D%27none%27%20stroke%3D%27%23f7f2ec%27%20stroke-width%3D%276%27%20stroke-linecap%3D%27round%27%20d%3D%27M92%2040c-4-6-2-14%206-18m14%2018c2-6%200-14-6-18m-74%2058c-4-10%202-24%2012-32%27/%3E%3C/svg%3E");
     }
 
     *{ box-sizing:border-box; }
@@ -448,10 +451,11 @@ HTML = """<!doctype html>
       margin:0;
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
       color: var(--text);
-      background: radial-gradient(900px 600px at 12% 8%, rgba(129, 196, 149, 0.2), transparent 55%),
-        radial-gradient(1100px 720px at 85% 12%, rgba(255, 255, 255, 0.12), transparent 60%),
-        radial-gradient(1200px 900px at 50% -5%, rgba(47, 133, 90, 0.32), transparent 58%),
-        linear-gradient(180deg, #2f855a, #276749 40%, #1f4f35);
+      background:
+        radial-gradient(1100px 820px at 16% 12%, rgba(255, 228, 228, 0.16), transparent 55%),
+        radial-gradient(900px 620px at 82% 18%, rgba(255, 190, 190, 0.16), transparent 55%),
+        radial-gradient(1600px 980px at 50% -8%, rgba(255, 225, 225, 0.12), transparent 60%),
+        linear-gradient(180deg, #b01231, #8c0d27 52%, #5c0818);
       position: relative;
       overflow-x:hidden;
     }
@@ -460,14 +464,19 @@ HTML = """<!doctype html>
       position: fixed;
       inset: 0;
       background-image:
-        radial-gradient(18px 18px at 10% 14%, rgba(255,255,255,.35), transparent 62%),
-        radial-gradient(22px 22px at 88% 8%, rgba(189, 224, 200, .28), transparent 60%),
-        radial-gradient(16px 16px at 16% 85%, rgba(74, 159, 109, .28), transparent 70%),
-        radial-gradient(14px 14px at 82% 80%, rgba(200, 230, 210,.30), transparent 68%);
+        var(--reindeer-img),
+        var(--reindeer-img),
+        radial-gradient(18px 18px at 12% 22%, rgba(255,255,255,.2), transparent 60%),
+        radial-gradient(26px 26px at 86% 10%, rgba(255, 214, 170, .32), transparent 60%),
+        radial-gradient(20px 20px at 20% 86%, rgba(255, 237, 214, .32), transparent 70%),
+        radial-gradient(18px 18px at 82% 80%, rgba(255, 255, 255,.22), transparent 68%);
       pointer-events: none;
       mix-blend-mode: screen;
-      opacity: .8;
+      opacity: .9;
       filter: drop-shadow(0 10px 18px rgba(0,0,0,.15));
+      background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, no-repeat;
+      background-size: 140px auto, 120px auto, auto, auto, auto, auto;
+      background-position: 10% 12%, 86% 26%, 16% 22%, 84% 9%, 18% 86%, 82% 82%;
     }
     body::after{
       content:"";
@@ -484,7 +493,7 @@ HTML = """<!doctype html>
         radial-gradient(1.5px 1.5px at 46% 12%, rgba(255,255,255,.6), transparent 60%);
       background-size: 260px 260px;
       pointer-events: none;
-      opacity: .6;
+      opacity: .65;
     }
 
     .wrap{
@@ -505,6 +514,22 @@ HTML = """<!doctype html>
       border: 1px solid var(--stroke);
       box-shadow: 0 12px 30px rgba(0,0,0,.18);
       backdrop-filter: blur(8px);
+      position: relative;
+      overflow: visible;
+    }
+    .topbar::after{
+      content:"";
+      position:absolute;
+      top:-34px;
+      left:16px;
+      width:110px;
+      height:86px;
+      background-image: var(--hat-img);
+      background-repeat: no-repeat;
+      background-size: contain;
+      transform: rotate(-8deg);
+      filter: drop-shadow(0 10px 14px rgba(0,0,0,.16));
+      pointer-events:none;
     }
 
     .brand{
