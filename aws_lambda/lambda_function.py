@@ -28,6 +28,7 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")  # keep secret in Lambda env v
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
 OPENAI_MAX_TOPICS = int(os.environ.get("OPENAI_MAX_TOPICS", "25"))
 OPENAI_BODY_MAX_CHARS = int(os.environ.get("OPENAI_BODY_MAX_CHARS", "6000"))
+DEFAULT_MIN_BUDGET_M = float(os.environ.get("DEFAULT_MIN_BUDGET_M", "10"))
 
 
 def extract_text(pdf_path: str) -> str:
@@ -70,6 +71,41 @@ def write_xlsx(rows, xlsx_path: str):
         ws.append([r.get(h) for h in headers])
 
     wb.save(xlsx_path)
+
+
+def filter_rows(rows, action_types=None, min_budget_m: float = None):
+    allowed = None
+    if action_types:
+        allowed = {str(t).upper() for t in action_types if str(t).strip()}
+        if not allowed:
+            allowed = None
+
+    def _budget_value(r):
+        for k in (
+            "budget_per_project_min_eur_m",
+            "budget_per_project_max_eur_m",
+            "budget_eur_m",
+        ):
+            val = r.get(k)
+            if isinstance(val, (int, float)):
+                return float(val)
+        return None
+
+    filtered = []
+    for r in rows:
+        if allowed is not None:
+            cur = (r.get("action_type") or "").upper()
+            if cur not in allowed:
+                continue
+
+        if min_budget_m is not None:
+            budget_val = _budget_value(r)
+            if budget_val is None or budget_val < min_budget_m:
+                continue
+
+        filtered.append(r)
+
+    return filtered
 
 
 # --- OpenAI helpers (Responses API) ---
@@ -269,6 +305,120 @@ HTML = """<!doctype html>
       color: var(--muted);
       font-size: 13px;
       line-height: 1.5;
+    }
+
+    .filters{
+      margin: 16px 0 18px;
+      display:grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+      align-items:flex-start;
+    }
+    .filterlabel{
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing:.3px;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .multiselect{
+      position: relative;
+    }
+    .selectbtn{
+      width: 100%;
+      justify-content: space-between;
+      background: linear-gradient(180deg, #f8f5ef, #f3eee6);
+      border-color: #d9d1c4;
+    }
+    .selectbtn .chev{ transition: transform .15s ease; }
+    .dropdown{
+      position:absolute;
+      inset: auto 0 0 0;
+      transform: translateY(calc(100% + 6px));
+      background: #ffffff;
+      border:1px solid #d9d1c4;
+      border-radius: 14px;
+      box-shadow: 0 14px 28px rgba(28,25,20,.12);
+      padding: 10px;
+      display:none;
+      z-index:5;
+    }
+    .dropdown.open{ display:block; }
+    .menuhead{
+      display:flex;
+      align-items:center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .menuactions{
+      display:flex;
+      gap: 6px;
+    }
+    .chipbtn{
+      border:1px solid #d9d1c4;
+      background:#f5f0e8;
+      border-radius: 10px;
+      padding: 5px 8px;
+      font-size: 11px;
+      cursor:pointer;
+      color: var(--muted);
+    }
+    .checklist{
+      max-height: 220px;
+      overflow:auto;
+      display:grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 6px;
+    }
+    .checkrow{
+      display:flex;
+      align-items:center;
+      gap: 8px;
+      padding: 8px 9px;
+      border:1px solid #e6ded3;
+      border-radius: 12px;
+      background:#f9f6f1;
+      font-size: 13px;
+      color: var(--text);
+      transition:.1s ease;
+      cursor:pointer;
+      user-select:none;
+    }
+    .checkrow:hover{ border-color: var(--accent); }
+    .checkrow input{ accent-color: var(--accent); }
+
+    .sliderwrap{
+      background:#f9f6f1;
+      border:1px solid #e6ded3;
+      border-radius: 14px;
+      padding: 12px;
+    }
+    .bubble{
+      display:inline-block;
+      padding: 6px 10px;
+      border-radius: 10px;
+      background: #2f855a;
+      color:#fff;
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 8px;
+      box-shadow: 0 10px 22px rgba(47,133,90,.24);
+    }
+    input[type=range]{
+      width: 100%;
+      accent-color: var(--accent);
+    }
+    .sliderlabels{
+      display:flex;
+      align-items:center;
+      justify-content: space-between;
+      color: var(--muted2);
+      font-size: 11px;
+      margin-top: 4px;
     }
 
     .dropzone{
@@ -556,6 +706,36 @@ HTML = """<!doctype html>
         Upload a Horizon Europe PDF to extract calls/topics and generate an Excel file.
       </p>
 
+      <div class="filters">
+        <div class="filter">
+          <div class="filterlabel">Tipi di call</div>
+          <div class="multiselect" id="typeBox">
+            <button class="btn selectbtn" id="typeBtn" type="button">
+              <span id="typeSummary">Tutti i tipi</span>
+              <span class="chev">▾</span>
+            </button>
+            <div class="dropdown" id="typeMenu">
+              <div class="menuhead">
+                <span>Seleziona uno o più tipi (default: tutti)</span>
+                <div class="menuactions">
+                  <button class="chipbtn" type="button" id="typeAll">Tutti</button>
+                  <button class="chipbtn" type="button" id="typeNone">Nessuno</button>
+                </div>
+              </div>
+              <div class="checklist" id="typeList"></div>
+            </div>
+          </div>
+        </div>
+        <div class="filter">
+          <div class="filterlabel">Budget minimo per progetto</div>
+          <div class="sliderwrap">
+            <div class="bubble" id="budgetBubble">10 M€</div>
+            <input type="range" id="budget" min="0" max="999" step="1" value="10" aria-label="Budget minimo in milioni di euro"/>
+            <div class="sliderlabels"><span>0</span><span>999 M€</span></div>
+          </div>
+        </div>
+      </div>
+
       <div class="dropzone" id="dz">
         <input id="file" type="file" accept="application/pdf" />
         <div class="dzrow">
@@ -607,9 +787,13 @@ HTML = """<!doctype html>
 <script>
 const $ = (id) => document.getElementById(id);
 
+const ACTION_TYPES = ["RIA","IA","CSA","PCP","PPI","COFUND","ERC","MSCA","EIC-PATHFINDER","EIC-TRANSITION","EIC-ACCELERATOR"];
+
 const state = {
   file: null,
   downloadUrl: null,
+  selectedTypes: new Set(ACTION_TYPES),
+  minBudget: 10,
 };
 
 function fmtBytes(bytes){
@@ -618,6 +802,83 @@ function fmtBytes(bytes){
   let n = bytes;
   while(n >= 1024 && i < u.length-1){ n/=1024; i++; }
   return (i === 0 ? n : n.toFixed(1)) + " " + u[i];
+}
+
+function ensureTypesFallback(){
+  if(state.selectedTypes.size === 0){
+    ACTION_TYPES.forEach(t => state.selectedTypes.add(t));
+  }
+}
+
+function updateTypeSummary(){
+  ensureTypesFallback();
+  const size = state.selectedTypes.size;
+  let summary = "Tutti i tipi";
+  if(size === ACTION_TYPES.length){
+    summary = "Tutti i tipi";
+  } else if(size === 1){
+    summary = Array.from(state.selectedTypes)[0];
+  } else {
+    const first = Array.from(state.selectedTypes)[0];
+    summary = `${first} +${size-1}`;
+  }
+  $("typeSummary").textContent = summary;
+}
+
+function syncTypeCheckboxes(){
+  ensureTypesFallback();
+  document.querySelectorAll("#typeList input[type=checkbox]").forEach(inp => {
+    inp.checked = state.selectedTypes.has(inp.value);
+  });
+  updateTypeSummary();
+}
+
+function renderTypeList(){
+  const box = $("typeList");
+  box.innerHTML = "";
+  ACTION_TYPES.forEach(t => {
+    const lbl = document.createElement("label");
+    lbl.className = "checkrow";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = t;
+    input.checked = state.selectedTypes.has(t);
+    input.onchange = () => {
+      if(input.checked){
+        state.selectedTypes.add(t);
+      } else {
+        state.selectedTypes.delete(t);
+      }
+      syncTypeCheckboxes();
+    };
+    const span = document.createElement("span");
+    span.textContent = t;
+    lbl.appendChild(input);
+    lbl.appendChild(span);
+    box.appendChild(lbl);
+  });
+}
+
+function formatBudget(val){
+  return `${val} M€`;
+}
+
+function setBudget(val){
+  const num = Math.min(999, Math.max(0, Math.round(Number(val) || 0)));
+  state.minBudget = num;
+  $("budget").value = String(num);
+  $("budgetBubble").textContent = formatBudget(num);
+}
+
+function setFiltersDisabled(disabled){
+  $("typeBtn").disabled = disabled;
+  $("typeAll").disabled = disabled;
+  $("typeNone").disabled = disabled;
+  document.querySelectorAll("#typeList input[type=checkbox]").forEach(inp => inp.disabled = disabled);
+  $("budget").disabled = disabled;
+  if(disabled){
+    $("typeMenu").classList.remove("open");
+  }
 }
 
 function setSteps(activeIdx, doneBefore=false){
@@ -648,6 +909,7 @@ function setBusy(busy){
   $("go").disabled = busy || !state.file;
   $("clear").disabled = busy || !state.file;
   $("file").disabled = busy;
+  setFiltersDisabled(busy);
 }
 
 function barNone(){
@@ -765,6 +1027,26 @@ $("clear").onclick = () => {
   setFile(null);
 };
 
+$("typeBtn").onclick = (e) => {
+  e.stopPropagation();
+  $("typeMenu").classList.toggle("open");
+};
+$("typeAll").onclick = () => {
+  state.selectedTypes = new Set(ACTION_TYPES);
+  syncTypeCheckboxes();
+};
+$("typeNone").onclick = () => {
+  state.selectedTypes.clear();
+  syncTypeCheckboxes();
+};
+document.addEventListener("click", (e) => {
+  if(!$("typeBox").contains(e.target)){
+    $("typeMenu").classList.remove("open");
+  }
+});
+
+$("budget").addEventListener("input", (e) => setBudget(e.target.value));
+
 $("downloadBtn").onclick = () => {
   if(state.downloadUrl) window.location = state.downloadUrl;
 };
@@ -801,7 +1083,11 @@ $("go").onclick = async () => {
     const proc = await fetchJson("/process", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pdf_key: pres.pdf_key })
+      body: JSON.stringify({
+        pdf_key: pres.pdf_key,
+        action_types: Array.from(state.selectedTypes),
+        min_budget_m: state.minBudget,
+      })
     });
 
     // 4) Download presigned
@@ -841,6 +1127,9 @@ $("go").onclick = async () => {
 };
 
 // init
+renderTypeList();
+syncTypeCheckboxes();
+setBudget(state.minBudget);
 setFile(null);
 </script>
 </body>
@@ -865,12 +1154,28 @@ def _json(obj):
     return json.dumps(obj, ensure_ascii=False)
 
 
+def _coerce_float(val):
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
 def handler(event, context):
     try:
         # Supporta invocazioni "dirette" (CLI) e HTTP (Lambda URL)
         if "requestContext" not in event:
             key = event["pdf_key"]
-            return _process_pdf_key(key, context=context)
+            action_types = event.get("action_types")
+            min_budget_m = _coerce_float(event.get("min_budget_m"))
+            if min_budget_m is None:
+                min_budget_m = DEFAULT_MIN_BUDGET_M
+            return _process_pdf_key(
+                key,
+                context=context,
+                action_types=action_types,
+                min_budget_m=min_budget_m,
+            )
 
         method = event.get("requestContext", {}).get("http", {}).get("method", "GET")
         path = event.get("rawPath", "/")
@@ -896,7 +1201,16 @@ def handler(event, context):
             body = event.get("body") or "{}"
             data = json.loads(body)
             pdf_key = data["pdf_key"]
-            result = _process_pdf_key(pdf_key, context=context)
+            action_types = data.get("action_types")
+            min_budget_m = _coerce_float(data.get("min_budget_m"))
+            if min_budget_m is None:
+                min_budget_m = DEFAULT_MIN_BUDGET_M
+            result = _process_pdf_key(
+                pdf_key,
+                context=context,
+                action_types=action_types,
+                min_budget_m=min_budget_m,
+            )
             return _resp(200, _json(result))
 
         if method == "POST" and path == "/download":
@@ -929,8 +1243,10 @@ def handler(event, context):
         )
 
 
-def _process_pdf_key(key: str, context=None):
+def _process_pdf_key(key: str, context=None, action_types=None, min_budget_m=None):
     _require_bucket()
+    if min_budget_m is None:
+        min_budget_m = DEFAULT_MIN_BUDGET_M
 
     local_pdf = f"/tmp/{uuid.uuid4()}.pdf"
     local_xlsx = f"/tmp/{uuid.uuid4()}.xlsx"
@@ -939,6 +1255,7 @@ def _process_pdf_key(key: str, context=None):
 
     text = extract_text(local_pdf)
     rows = parse_calls(text)
+    rows = filter_rows(rows, action_types=action_types, min_budget_m=min_budget_m)
 
     # --- OpenAI descriptions (optional) ---
     # Regola anti-timeout: se mancano < 8s, stop OpenAI.
