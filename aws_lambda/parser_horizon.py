@@ -372,6 +372,8 @@ def parse_calls(text: str) -> List[Dict]:
             "budget_per_project_max_eur_m": pending_per_max,
 
             "trl": None,
+
+            "topic_body": pending_body,
         }
 
         prev = best_by_topic.get(pending_topic_id)
@@ -551,5 +553,4 @@ def parse_calls(text: str) -> List[Dict]:
     rows = list(best_by_topic.values())
     rows.sort(key=lambda r: (r.get("call_id") or "", r.get("topic_id") or ""))
     return rows
-
 

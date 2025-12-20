@@ -69,6 +69,7 @@ def _compute_budget_per_project_m(row):
     for key in (
         "budget_per_project_min_eur_m",
         "budget_per_project_max_eur_m",
+        "budget_per_project_m",
     ):
         v = row.get(key)
         if isinstance(v, (int, float)):
@@ -91,6 +92,7 @@ def write_xlsx(rows, xlsx_path: str):
         "call_id",
         "topic_id",
         "topic_title",
+        "topic_description",
         "action_type",
         "trl",
         "budget_eur_m",
@@ -132,8 +134,11 @@ def filter_rows(rows, action_types=None, min_budget_m: float = None):
                 continue
 
         if min_budget_m is not None:
-            raw_budget = r.get("budget_per_project_m")
-            budget_val = raw_budget if raw_budget is not None else 0.0
+            budget_val = r.get("budget_per_project_min_eur_m")
+            if not isinstance(budget_val, (int, float)):
+                budget_val = _compute_budget_per_project_m(r)
+            if budget_val is None:
+                budget_val = 0.0
             if budget_val < min_budget_m:
                 continue
 
@@ -163,35 +168,34 @@ def _extract_output_text(resp_json: dict) -> str:
     return "\n".join(p.strip() for p in parts if p and p.strip()).strip()
 
 
-def _openai_topic_description(topic_id: str, topic_title: str, body_text: str) -> str:
+def _openai_topic_description(topic_id: str, topic_title: str, body_text: str, cache: dict) -> str:
     """
-    2-3 frasi in italiano, semplici, usando SOLO il testo del PDF.
-    Se insufficiente: "Descrizione non disponibile dal PDF"
+    Return a short English summary (max 2 sentences) using ONLY the provided text.
     """
     if not OPENAI_API_KEY:
         return ""
 
-    body_text = (body_text or "").strip()
-    if len(body_text) < 200:
+    clean_body = (body_text or "").strip()
+    if not clean_body:
         return ""
 
-    if len(body_text) > OPENAI_BODY_MAX_CHARS:
-        body_text = body_text[:OPENAI_BODY_MAX_CHARS] + "\n[...TRONCATO...]"
+    if len(clean_body) > OPENAI_BODY_MAX_CHARS:
+        clean_body = clean_body[:OPENAI_BODY_MAX_CHARS]
+
+    if clean_body in cache:
+        return cache[clean_body]
 
     instructions = (
-        "Sei un assistente che scrive una descrizione semplice di un topic Horizon Europe.\n"
-        "VINCOLI (importantissimo):\n"
-        "- Usa SOLO informazioni presenti nel testo fornito (estratto dal PDF).\n"
-        "- Non inventare nulla: niente numeri, date, budget o dettagli non presenti.\n"
-        "- Se il testo non contiene abbastanza info, rispondi ESATTAMENTE: \"Descrizione non disponibile dal PDF\".\n"
-        "- Output: 2-3 frasi in italiano, chiare e concrete, max ~80 parole.\n"
+        "Summarize only what is present in the provided text.\n"
+        "Do not add requirements, dates, numbers, or claims not present.\n"
+        "Return 2 short sentences maximum in English using simple language (under 240 characters)."
     )
 
     user_input = (
-        f"TOPIC ID: {topic_id}\n"
-        f"TITOLO: {topic_title}\n\n"
-        "TESTO (estratto dal PDF):\n"
-        f"{body_text}"
+        f"Topic ID: {topic_id}\n"
+        f"Title: {topic_title}\n\n"
+        "Text from PDF:\n"
+        f"{clean_body}"
     )
 
     payload = {
@@ -214,8 +218,19 @@ def _openai_topic_description(topic_id: str, topic_title: str, body_text: str) -
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
             data = json.loads(r.read().decode("utf-8"))
-            return _extract_output_text(data)
+            summary = _extract_output_text(data).strip()
+            if summary:
+                sentences = re.split(r"(?<=[.!?])\s+", summary)
+                summary = " ".join([p for p in sentences if p][:2]).strip()
+            if len(summary) > 240:
+                summary = summary[:240].rstrip()
+            cache[clean_body] = summary
+            return summary
     except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
+        cache[clean_body] = ""
+        return ""
+    except Exception:
+        cache[clean_body] = ""
         return ""
 
 
@@ -266,7 +281,7 @@ HTML = """<!doctype html>
     .topbar{
       display:flex;
       align-items:center;
-      justify-content:space-between;
+      justify-content:flex-start;
       gap:16px;
       margin-bottom: 18px;
       padding: 8px 6px;
@@ -296,24 +311,6 @@ HTML = """<!doctype html>
       color: var(--muted);
       font-size: 13px;
       line-height:1.45;
-    }
-
-    .pill{
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      border:1px solid var(--stroke);
-      background: #f2ede4;
-      padding: 8px 12px;
-      border-radius: 999px;
-      color: var(--muted);
-      font-size: 12px;
-      white-space: nowrap;
-    }
-    .dot{
-      width:8px;height:8px;border-radius:999px;
-      background: var(--accent);
-      box-shadow: 0 0 0 6px rgba(107,139,95,.20);
     }
 
     @media (max-width: 860px){
@@ -490,9 +487,9 @@ HTML = """<!doctype html>
       font-weight: 650;
       font-size: 14px;
       color: var(--text);
-      overflow:hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      white-space: normal;
     }
     .filesub{
       color: var(--muted2);
@@ -715,7 +712,7 @@ HTML = """<!doctype html>
     }
     .recap-row{
       display: grid;
-      grid-template-columns: 110px 1fr;
+      grid-template-columns: 140px 1fr;
       gap: 6px;
       align-items: start;
       font-size: 13px;
@@ -728,11 +725,19 @@ HTML = """<!doctype html>
       letter-spacing: .2px;
       font-size: 11px;
       font-weight: 700;
+      white-space: nowrap;
     }
     .recap-value{
       overflow-wrap: anywhere;
       word-break: break-word;
       color: var(--text);
+    }
+    .recap-value.desc{
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      white-space: normal;
     }
     .recap-actions{
       margin-top: 10px;
@@ -786,11 +791,6 @@ HTML = """<!doctype html>
           <h1>Horizon Call Extractor</h1>
           <p>Upload a Horizon Europe PDF → extract calls/topics → download the Excel.</p>
         </div>
-      </div>
-
-      <div class="pill" id="envpill" title="Endpoint: Lambda Function URL">
-        <span class="dot" id="envdot"></span>
-        <span>Lambda UI</span>
       </div>
     </div>
 
@@ -879,7 +879,7 @@ HTML = """<!doctype html>
 
   <div class="recap card" id="recapWrap" style="display:none;">
     <h3>Recap</h3>
-    <p class="recap-sub">After generation, the first topics are shown below. Only Topic ID, min budget per project, and start date are displayed.</p>
+    <p class="recap-sub">After generation, the first topics are shown below with key details (ID, action/type, description, budget, opening/deadline).</p>
     <div class="recap-grid" id="recapGrid"></div>
     <div class="recap-actions">
       <button class="btn ghost" type="button" id="recapMore" style="display:none;">Show more</button>
@@ -1043,13 +1043,14 @@ async function fetchJson(url, opts){
 }
 
 function formatRecapBudget(val){
-  if(val === null || val === undefined){
+  const num = Number(val);
+  if(Number.isNaN(num)){
     return "—";
   }
-  if(val >= 15){
+  if(num >= 15){
     return "15+ M€";
   }
-  return `${val} M€`;
+  return `${num} M€`;
 }
 
 function topicLink(tid, url){
@@ -1074,48 +1075,64 @@ function renderRecap(){
     const card = document.createElement("div");
     card.className = "recap-card";
 
-    const rowA = document.createElement("div");
-    rowA.className = "recap-row";
-    const la = document.createElement("div");
-    la.className = "recap-label";
-    la.textContent = "Topic ID";
-    const va = document.createElement("div");
-    va.className = "recap-value";
-    const link = document.createElement("a");
-    link.href = topicLink(r.topic_id, r.topic_url) || "#";
-    link.target = "_blank";
-    link.rel = "noreferrer";
-    link.textContent = r.topic_id || "—";
-    link.className = "link";
-    va.appendChild(link);
-    rowA.appendChild(la);
-    rowA.appendChild(va);
+    const makeRow = (label, valueEl) => {
+      const row = document.createElement("div");
+      row.className = "recap-row";
+      const l = document.createElement("div");
+      l.className = "recap-label";
+      l.textContent = label;
+      const v = document.createElement("div");
+      v.className = "recap-value";
+      if(valueEl){
+        v.appendChild(valueEl);
+      } else {
+        v.textContent = "—";
+      }
+      row.appendChild(l);
+      row.appendChild(v);
+      return row;
+    };
 
-    const rowB = document.createElement("div");
-    rowB.className = "recap-row";
-    const lb = document.createElement("div");
-    lb.className = "recap-label";
-    lb.textContent = "Min budget (M€)";
-    const vb = document.createElement("div");
-    vb.className = "recap-value";
-    vb.textContent = formatRecapBudget(r.budget_per_project_m);
-    rowB.appendChild(lb);
-    rowB.appendChild(vb);
+    const topicLinkEl = document.createElement("a");
+    topicLinkEl.href = topicLink(r.topic_id, r.topic_url) || "#";
+    topicLinkEl.target = "_blank";
+    topicLinkEl.rel = "noreferrer";
+    topicLinkEl.textContent = r.topic_id || "—";
+    topicLinkEl.className = "link";
+    card.appendChild(makeRow("Topic ID", topicLinkEl));
 
-    const rowC = document.createElement("div");
-    rowC.className = "recap-row";
-    const lc = document.createElement("div");
-    lc.className = "recap-label";
-    lc.textContent = "Start date";
-    const vc = document.createElement("div");
-    vc.className = "recap-value";
-    vc.textContent = r.opening_date || "—";
-    rowC.appendChild(lc);
-    rowC.appendChild(vc);
+    const actionEl = document.createElement("span");
+    actionEl.textContent = r.action_type || "—";
+    card.appendChild(makeRow("Action type", actionEl));
 
-    card.appendChild(rowA);
-    card.appendChild(rowB);
-    card.appendChild(rowC);
+    const typeEl = document.createElement("span");
+    typeEl.textContent = r.type || "—";
+    card.appendChild(makeRow("Type", typeEl));
+
+    const descEl = document.createElement("div");
+    descEl.className = "recap-value desc";
+    descEl.textContent = r.topic_description || "—";
+    const descRow = document.createElement("div");
+    descRow.className = "recap-row";
+    const descLabel = document.createElement("div");
+    descLabel.className = "recap-label";
+    descLabel.textContent = "Topic description";
+    descRow.appendChild(descLabel);
+    descRow.appendChild(descEl);
+    card.appendChild(descRow);
+
+    const budgetEl = document.createElement("span");
+    budgetEl.textContent = formatRecapBudget(r.budget_per_project_min_eur_m);
+    card.appendChild(makeRow("Min budget per project (M€)", budgetEl));
+
+    const openEl = document.createElement("span");
+    openEl.textContent = r.opening_date || "—";
+    card.appendChild(makeRow("Opening date", openEl));
+
+    const deadlineEl = document.createElement("span");
+    deadlineEl.textContent = r.deadline_date || "—";
+    card.appendChild(makeRow("Deadline date", deadlineEl));
+
     grid.appendChild(card);
   });
 
@@ -1144,6 +1161,11 @@ function showResult(rowsData, downloadUrl){
   state.recapRows = Array.isArray(rowsData) ? rowsData : [];
   state.showAllRecap = false;
   renderRecap();
+
+  const recap = $("recapWrap");
+  if(recap && recap.style.display !== "none"){
+    recap.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 }
 
 function resetResult(){
@@ -1311,9 +1333,7 @@ $("go").onclick = async () => {
     const rows = (proc && proc.rows) ? proc.rows : [];
     showResult(rows, state.downloadUrl);
 
-    setStatus("Completed ✅", "Download is ready. If it does not start automatically, use “Download Excel”.");
-    // auto-download
-    window.location = state.downloadUrl;
+    setStatus("Completed ✅", "Download is ready. Use “Download Excel” to get the file.");
 
   } catch (e) {
     barNone();
@@ -1471,23 +1491,27 @@ def _process_pdf_key(
     rows = parse_calls(text)
 
     for r in rows:
-        r["budget_per_project_m"] = _compute_budget_per_project_m(r)
+        derived_budget = _compute_budget_per_project_m(r)
+        r["budget_per_project_min_eur_m"] = derived_budget
+        r["budget_per_project_m"] = derived_budget
 
     rows = filter_rows(rows, action_types=action_types, min_budget_m=min_budget_m)
 
     # --- OpenAI descriptions (optional) ---
     # Regola anti-timeout: se mancano < 8s, stop OpenAI.
-    if OPENAI_API_KEY and context is not None:
+    desc_cache: dict = {}
+    if OPENAI_API_KEY:
         n = 0
         for r in rows:
             if n >= OPENAI_MAX_TOPICS:
                 break
 
             # time budget
-            remaining_ms = context.get_remaining_time_in_millis()
-            if remaining_ms is not None and remaining_ms < 8000:
-                print(f"Stopping OpenAI: low remaining time {remaining_ms}ms")
-                break
+            if context is not None:
+                remaining_ms = context.get_remaining_time_in_millis()
+                if remaining_ms is not None and remaining_ms < 8000:
+                    print(f"Stopping OpenAI: low remaining time {remaining_ms}ms")
+                    break
 
             body = (r.get("topic_body") or "").strip()
             if not body:
@@ -1501,10 +1525,22 @@ def _process_pdf_key(
                 topic_id=r.get("topic_id") or "",
                 topic_title=r.get("topic_title") or "",
                 body_text=body,
+                cache=desc_cache,
             )
             if desc:
                 r["topic_description"] = desc
                 n += 1
+            else:
+                r["topic_description"] = ""
+
+    for r in rows:
+        if r.get("topic_description") is None:
+            r["topic_description"] = ""
+
+        if r.get("budget_per_project_min_eur_m") is None:
+            derived_budget = _compute_budget_per_project_m(r)
+            r["budget_per_project_min_eur_m"] = derived_budget
+            r["budget_per_project_m"] = derived_budget
 
     # Don't export topic_body to Excel
     for r in rows:
@@ -1516,14 +1552,19 @@ def _process_pdf_key(
     out_key = f"outputs/{uuid.uuid4()}/{safe_base}.xlsx"
     s3.upload_file(local_xlsx, BUCKET, out_key)
 
-    recap_rows = [
-        {
-            "topic_id": r.get("topic_id"),
-            "topic_url": _topic_url(r.get("topic_id")),
-            "budget_per_project_m": r.get("budget_per_project_m", 0.0),
-            "opening_date": r.get("opening_date"),
-        }
-        for r in rows
-    ]
+    recap_rows = []
+    for r in rows:
+        recap_rows.append(
+            {
+                "topic_id": r.get("topic_id"),
+                "topic_url": _topic_url(r.get("topic_id")),
+                "action_type": r.get("action_type"),
+                "type": r.get("stage") or r.get("call_round"),
+                "topic_description": r.get("topic_description") or "",
+                "budget_per_project_min_eur_m": r.get("budget_per_project_min_eur_m"),
+                "opening_date": r.get("opening_date"),
+                "deadline_date": r.get("deadline_date"),
+            }
+        )
 
     return {"status": "ok", "excel_key": out_key, "rows": recap_rows, "rows_count": len(rows)}
