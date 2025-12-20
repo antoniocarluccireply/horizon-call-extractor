@@ -1,7 +1,20 @@
 import re
 from typing import Dict, List, Optional, Tuple
 
-ACTION_TYPES = {"RIA", "IA", "CSA", "PCP", "PPI", "COFUND"}
+ACTION_TYPES = {
+    "RIA",
+    "IA",
+    "CSA",
+    "PCP",
+    "PPI",
+    "COFUND",
+    "ERC",
+    "MSCA",
+    "EIC-PATHFINDER",
+    "EIC-TRANSITION",
+    "EIC-ACCELERATOR",
+}
+ACTION_TYPES_PATTERN = "(" + "|".join(sorted(ACTION_TYPES, key=len, reverse=True)) + ")"
 
 RE_CALL_ID = re.compile(r"\bHORIZON-[A-Z0-9]+-\d{4}-\d{2}(?:-two-stage)?\b")
 
@@ -177,7 +190,7 @@ def _parse_overview_block(lines: List[str], start_i: int) -> Tuple[Optional[Dict
         buf.append(ln)
         joined = _clean_overview_joined(" ".join(buf))
 
-        m = re.match(r"^(RIA|IA|CSA|PCP|PPI|COFUND)\s+(.*)$", joined)
+        m = re.match(rf"^{ACTION_TYPES_PATTERN}\s+(.*)$", joined)
         if not m:
             i += 1
             continue
@@ -538,6 +551,5 @@ def parse_calls(text: str) -> List[Dict]:
     rows = list(best_by_topic.values())
     rows.sort(key=lambda r: (r.get("call_id") or "", r.get("topic_id") or ""))
     return rows
-
 
 
