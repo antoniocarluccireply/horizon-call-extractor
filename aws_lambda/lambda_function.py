@@ -1,11 +1,11 @@
 import os
+import re
 import uuid
 import json
 import boto3
 import urllib.request
 import urllib.error
 import traceback
-import time
 from pypdf import PdfReader
 from openpyxl import Workbook
 
@@ -28,7 +28,28 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")  # keep secret in Lambda env v
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
 OPENAI_MAX_TOPICS = int(os.environ.get("OPENAI_MAX_TOPICS", "25"))
 OPENAI_BODY_MAX_CHARS = int(os.environ.get("OPENAI_BODY_MAX_CHARS", "6000"))
-DEFAULT_MIN_BUDGET_M = float(os.environ.get("DEFAULT_MIN_BUDGET_M", "10"))
+DEFAULT_MIN_BUDGET_M = float(os.environ.get("DEFAULT_MIN_BUDGET_M", "0"))
+
+
+def _safe_base_name(file_name: str) -> str:
+    base = os.path.basename(file_name or "").strip()
+    if not base:
+        return "file"
+
+    base = re.sub(r"[\\/:*?\"<>|]", "_", base)
+    base = base.strip(". ")
+    name, _ext = os.path.splitext(base)
+    cleaned = name or "file"
+    return cleaned[:120]
+
+
+def _topic_url(topic_id: str) -> str:
+    tid = (topic_id or "").strip()
+    return (
+        f"https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/{tid}"
+        if tid
+        else ""
+    )
 
 
 def extract_text(pdf_path: str) -> str:
@@ -41,6 +62,20 @@ def extract_text(pdf_path: str) -> str:
         chunks.append(f"\n<<<PAGE {idx}>>>\n")
         chunks.append(p.extract_text() or "")
     return "\n".join(chunks)
+
+
+def _compute_budget_per_project_m(row):
+    vals = []
+    for key in (
+        "budget_per_project_min_eur_m",
+        "budget_per_project_max_eur_m",
+    ):
+        v = row.get(key)
+        if isinstance(v, (int, float)):
+            vals.append(float(v))
+    if vals:
+        return min(vals)
+    return None
 
 
 def write_xlsx(rows, xlsx_path: str):
@@ -68,7 +103,16 @@ def write_xlsx(rows, xlsx_path: str):
     ws.append(headers)
 
     for r in rows:
-        ws.append([r.get(h) for h in headers])
+        row_values = [r.get(h) for h in headers]
+        ws.append(row_values)
+
+    # apply hyperlink to topic_id column (6th col)
+    for idx, r in enumerate(rows, start=2):  # header is row 1
+        cell = ws.cell(row=idx, column=6)
+        url = _topic_url(r.get("topic_id"))
+        if url:
+            cell.hyperlink = url
+            cell.style = "Hyperlink"
 
     wb.save(xlsx_path)
 
@@ -80,17 +124,6 @@ def filter_rows(rows, action_types=None, min_budget_m: float = None):
         if not allowed:
             allowed = None
 
-    def _budget_value(r):
-        for k in (
-            "budget_per_project_min_eur_m",
-            "budget_per_project_max_eur_m",
-            "budget_eur_m",
-        ):
-            val = r.get(k)
-            if isinstance(val, (int, float)):
-                return float(val)
-        return None
-
     filtered = []
     for r in rows:
         if allowed is not None:
@@ -99,8 +132,9 @@ def filter_rows(rows, action_types=None, min_budget_m: float = None):
                 continue
 
         if min_budget_m is not None:
-            budget_val = _budget_value(r)
-            if budget_val is None or budget_val < min_budget_m:
+            raw_budget = r.get("budget_per_project_m")
+            budget_val = raw_budget if raw_budget is not None else 0.0
+            if budget_val < min_budget_m:
                 continue
 
         filtered.append(r)
@@ -650,6 +684,60 @@ HTML = """<!doctype html>
       color: var(--muted2);
     }
 
+    .recap{
+      margin-top: 18px;
+    }
+    .recap h3{
+      margin: 0 0 8px;
+      font-size: 15px;
+      letter-spacing: .2px;
+    }
+    .recap-sub{
+      margin: 0 0 12px;
+      color: var(--muted2);
+      font-size: 12px;
+    }
+    .recap-grid{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 12px;
+      width: 100%;
+    }
+    .recap-card{
+      border: 1px solid #e0d7c9;
+      background: #f9f6f1;
+      border-radius: 14px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-width: 100%;
+    }
+    .recap-row{
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 6px;
+      align-items: start;
+      font-size: 13px;
+      color: var(--text);
+      max-width: 100%;
+    }
+    .recap-label{
+      color: var(--muted2);
+      text-transform: uppercase;
+      letter-spacing: .2px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .recap-value{
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      color: var(--text);
+    }
+    .recap-actions{
+      margin-top: 10px;
+    }
+
     a.link{
       color: var(--accent-strong);
       text-decoration: none;
@@ -666,6 +754,12 @@ HTML = """<!doctype html>
     @media (max-width: 620px){
       .dzrow{ flex-direction: column; align-items: stretch; }
       .actions{ justify-content:flex-start; }
+    }
+
+    @media (max-width: 520px){
+      .recap-row{
+        grid-template-columns: 1fr;
+      }
     }
 
     @media (max-width: 720px){
@@ -708,18 +802,18 @@ HTML = """<!doctype html>
 
       <div class="filters">
         <div class="filter">
-          <div class="filterlabel">Tipi di call</div>
+          <div class="filterlabel">Call types</div>
           <div class="multiselect" id="typeBox">
             <button class="btn selectbtn" id="typeBtn" type="button">
-              <span id="typeSummary">Tutti i tipi</span>
+              <span id="typeSummary">All types</span>
               <span class="chev">▾</span>
             </button>
             <div class="dropdown" id="typeMenu">
               <div class="menuhead">
-                <span>Seleziona uno o più tipi (default: tutti)</span>
+                <span>Select one or more types (default: all)</span>
                 <div class="menuactions">
-                  <button class="chipbtn" type="button" id="typeAll">Tutti</button>
-                  <button class="chipbtn" type="button" id="typeNone">Nessuno</button>
+                  <button class="chipbtn" type="button" id="typeAll">Select all</button>
+                  <button class="chipbtn" type="button" id="typeNone">Select none</button>
                 </div>
               </div>
               <div class="checklist" id="typeList"></div>
@@ -727,11 +821,11 @@ HTML = """<!doctype html>
           </div>
         </div>
         <div class="filter">
-          <div class="filterlabel">Budget minimo per progetto</div>
+          <div class="filterlabel">Min. budget per project</div>
           <div class="sliderwrap">
-            <div class="bubble" id="budgetBubble">10 M€</div>
-            <input type="range" id="budget" min="0" max="999" step="1" value="10" aria-label="Budget minimo in milioni di euro"/>
-            <div class="sliderlabels"><span>0</span><span>999 M€</span></div>
+            <div class="bubble" id="budgetBubble">0 M€</div>
+            <input type="range" id="budget" min="0" max="15" step="1" value="0" aria-label="Minimum budget per project in million euros"/>
+            <div class="sliderlabels"><span>0</span><span>15+ M€</span></div>
           </div>
         </div>
       </div>
@@ -780,9 +874,18 @@ HTML = """<!doctype html>
           </div>
 
         </div>
-      </div>
     </div>
   </div>
+
+  <div class="recap card" id="recapWrap" style="display:none;">
+    <h3>Recap</h3>
+    <p class="recap-sub">After generation, the first topics are shown below. Only Topic ID, min budget per project, and start date are displayed.</p>
+    <div class="recap-grid" id="recapGrid"></div>
+    <div class="recap-actions">
+      <button class="btn ghost" type="button" id="recapMore" style="display:none;">Show more</button>
+    </div>
+  </div>
+</div>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -792,8 +895,10 @@ const ACTION_TYPES = ["RIA","IA","CSA","PCP","PPI","COFUND","ERC","MSCA","EIC-PA
 const state = {
   file: null,
   downloadUrl: null,
-  selectedTypes: new Set(ACTION_TYPES),
-  minBudget: 10,
+  selectedTypes: new Set(), // empty = all types (no filter)
+  minBudget: 0,
+  recapRows: [],
+  showAllRecap: false,
 };
 
 function fmtBytes(bytes){
@@ -804,29 +909,23 @@ function fmtBytes(bytes){
   return (i === 0 ? n : n.toFixed(1)) + " " + u[i];
 }
 
-function ensureTypesFallback(){
-  if(state.selectedTypes.size === 0){
-    ACTION_TYPES.forEach(t => state.selectedTypes.add(t));
-  }
-}
-
 function updateTypeSummary(){
-  ensureTypesFallback();
   const size = state.selectedTypes.size;
-  let summary = "Tutti i tipi";
+  let summary = "All types";
   if(size === ACTION_TYPES.length){
-    summary = "Tutti i tipi";
+    summary = "All types";
   } else if(size === 1){
     summary = Array.from(state.selectedTypes)[0];
-  } else {
+  } else if(size > 1){
     const first = Array.from(state.selectedTypes)[0];
     summary = `${first} +${size-1}`;
+  } else {
+    summary = "All types";
   }
   $("typeSummary").textContent = summary;
 }
 
 function syncTypeCheckboxes(){
-  ensureTypesFallback();
   document.querySelectorAll("#typeList input[type=checkbox]").forEach(inp => {
     inp.checked = state.selectedTypes.has(inp.value);
   });
@@ -860,11 +959,14 @@ function renderTypeList(){
 }
 
 function formatBudget(val){
+  if(val >= 15){
+    return "15+ M€";
+  }
   return `${val} M€`;
 }
 
 function setBudget(val){
-  const num = Math.min(999, Math.max(0, Math.round(Number(val) || 0)));
+  const num = Math.min(15, Math.max(0, Math.round(Number(val) || 0)));
   state.minBudget = num;
   $("budget").value = String(num);
   $("budgetBubble").textContent = formatBudget(num);
@@ -940,15 +1042,108 @@ async function fetchJson(url, opts){
   return data;
 }
 
-function showResult(rows, downloadUrl){
+function formatRecapBudget(val){
+  if(val === null || val === undefined){
+    return "—";
+  }
+  if(val >= 15){
+    return "15+ M€";
+  }
+  return `${val} M€`;
+}
+
+function topicLink(tid, url){
+  if(url) return url;
+  const clean = (tid || "").trim();
+  if(!clean) return "";
+  return `https://ec.europa.eu/info/funding-tenders/opportunities/portal/screen/opportunities/topic-details/${clean}`;
+}
+
+function renderRecap(){
+  const wrap = $("recapWrap");
+  const grid = $("recapGrid");
+  const btn = $("recapMore");
+  if(!wrap || !grid || !btn) return;
+
+  grid.innerHTML = "";
+  const rows = state.recapRows || [];
+  const limit = 120;
+  const visible = state.showAllRecap ? rows : rows.slice(0, limit);
+
+  visible.forEach((r) => {
+    const card = document.createElement("div");
+    card.className = "recap-card";
+
+    const rowA = document.createElement("div");
+    rowA.className = "recap-row";
+    const la = document.createElement("div");
+    la.className = "recap-label";
+    la.textContent = "Topic ID";
+    const va = document.createElement("div");
+    va.className = "recap-value";
+    const link = document.createElement("a");
+    link.href = topicLink(r.topic_id, r.topic_url) || "#";
+    link.target = "_blank";
+    link.rel = "noreferrer";
+    link.textContent = r.topic_id || "—";
+    link.className = "link";
+    va.appendChild(link);
+    rowA.appendChild(la);
+    rowA.appendChild(va);
+
+    const rowB = document.createElement("div");
+    rowB.className = "recap-row";
+    const lb = document.createElement("div");
+    lb.className = "recap-label";
+    lb.textContent = "Min budget (M€)";
+    const vb = document.createElement("div");
+    vb.className = "recap-value";
+    vb.textContent = formatRecapBudget(r.budget_per_project_m);
+    rowB.appendChild(lb);
+    rowB.appendChild(vb);
+
+    const rowC = document.createElement("div");
+    rowC.className = "recap-row";
+    const lc = document.createElement("div");
+    lc.className = "recap-label";
+    lc.textContent = "Start date";
+    const vc = document.createElement("div");
+    vc.className = "recap-value";
+    vc.textContent = r.opening_date || "—";
+    rowC.appendChild(lc);
+    rowC.appendChild(vc);
+
+    card.appendChild(rowA);
+    card.appendChild(rowB);
+    card.appendChild(rowC);
+    grid.appendChild(card);
+  });
+
+  const hidden = rows.length - visible.length;
+  if(hidden > 0){
+    btn.style.display = "inline-flex";
+    btn.textContent = state.showAllRecap ? "Show less" : `Show more (${hidden})`;
+  } else {
+    btn.style.display = "none";
+  }
+
+  wrap.style.display = rows.length ? "block" : "none";
+}
+
+function showResult(rowsData, downloadUrl){
   $("kpi").style.display = "flex";
-  $("rows").textContent = String(rows ?? 0);
+  const count = Array.isArray(rowsData) ? rowsData.length : (rowsData ?? 0);
+  $("rows").textContent = String(count);
   $("final").textContent = "Ready";
   const dlBtn = $("downloadBtn");
   dlBtn.style.display = downloadUrl ? "inline-flex" : "none";
   if(downloadUrl){
     dlBtn.classList.add("success");
   }
+
+  state.recapRows = Array.isArray(rowsData) ? rowsData : [];
+  state.showAllRecap = false;
+  renderRecap();
 }
 
 function resetResult(){
@@ -956,6 +1151,9 @@ function resetResult(){
   $("downloadBtn").style.display = "none";
   $("downloadBtn").classList.remove("success");
   state.downloadUrl = null;
+  state.recapRows = [];
+  state.showAllRecap = false;
+  renderRecap();
 }
 
 function setFile(f){
@@ -1036,7 +1234,7 @@ $("typeAll").onclick = () => {
   syncTypeCheckboxes();
 };
 $("typeNone").onclick = () => {
-  state.selectedTypes.clear();
+  state.selectedTypes = new Set();
   syncTypeCheckboxes();
 };
 document.addEventListener("click", (e) => {
@@ -1049,6 +1247,11 @@ $("budget").addEventListener("input", (e) => setBudget(e.target.value));
 
 $("downloadBtn").onclick = () => {
   if(state.downloadUrl) window.location = state.downloadUrl;
+};
+
+$("recapMore").onclick = () => {
+  state.showAllRecap = !state.showAllRecap;
+  renderRecap();
 };
 
 $("go").onclick = async () => {
@@ -1087,6 +1290,7 @@ $("go").onclick = async () => {
         pdf_key: pres.pdf_key,
         action_types: Array.from(state.selectedTypes),
         min_budget_m: state.minBudget,
+        original_name: state.file?.name || "",
       })
     });
 
@@ -1104,7 +1308,7 @@ $("go").onclick = async () => {
     barSet(100);
     [$("s1"),$("s2"),$("s3"),$("s4")].forEach(el => { el.classList.remove("active"); el.classList.add("done"); });
 
-    const rows = (proc && typeof proc.rows === "number") ? proc.rows : null;
+    const rows = (proc && proc.rows) ? proc.rows : [];
     showResult(rows, state.downloadUrl);
 
     setStatus("Completed ✅", "Download is ready. If it does not start automatically, use “Download Excel”.");
@@ -1170,11 +1374,13 @@ def handler(event, context):
             min_budget_m = _coerce_float(event.get("min_budget_m"))
             if min_budget_m is None:
                 min_budget_m = DEFAULT_MIN_BUDGET_M
+            original_name = event.get("original_name") or ""
             return _process_pdf_key(
                 key,
                 context=context,
                 action_types=action_types,
                 min_budget_m=min_budget_m,
+                original_name=original_name,
             )
 
         method = event.get("requestContext", {}).get("http", {}).get("method", "GET")
@@ -1205,11 +1411,13 @@ def handler(event, context):
             min_budget_m = _coerce_float(data.get("min_budget_m"))
             if min_budget_m is None:
                 min_budget_m = DEFAULT_MIN_BUDGET_M
+            original_name = data.get("original_name") or ""
             result = _process_pdf_key(
                 pdf_key,
                 context=context,
                 action_types=action_types,
                 min_budget_m=min_budget_m,
+                original_name=original_name,
             )
             return _resp(200, _json(result))
 
@@ -1243,7 +1451,13 @@ def handler(event, context):
         )
 
 
-def _process_pdf_key(key: str, context=None, action_types=None, min_budget_m=None):
+def _process_pdf_key(
+    key: str,
+    context=None,
+    action_types=None,
+    min_budget_m=None,
+    original_name: str = "",
+):
     _require_bucket()
     if min_budget_m is None:
         min_budget_m = DEFAULT_MIN_BUDGET_M
@@ -1255,6 +1469,10 @@ def _process_pdf_key(key: str, context=None, action_types=None, min_budget_m=Non
 
     text = extract_text(local_pdf)
     rows = parse_calls(text)
+
+    for r in rows:
+        r["budget_per_project_m"] = _compute_budget_per_project_m(r)
+
     rows = filter_rows(rows, action_types=action_types, min_budget_m=min_budget_m)
 
     # --- OpenAI descriptions (optional) ---
@@ -1294,7 +1512,18 @@ def _process_pdf_key(key: str, context=None, action_types=None, min_budget_m=Non
 
     write_xlsx(rows, local_xlsx)
 
-    out_key = key.rsplit(".", 1)[0] + ".xlsx"
+    safe_base = _safe_base_name(original_name) or "file"
+    out_key = f"outputs/{uuid.uuid4()}/{safe_base}.xlsx"
     s3.upload_file(local_xlsx, BUCKET, out_key)
 
-    return {"status": "ok", "excel_key": out_key, "rows": len(rows)}
+    recap_rows = [
+        {
+            "topic_id": r.get("topic_id"),
+            "topic_url": _topic_url(r.get("topic_id")),
+            "budget_per_project_m": r.get("budget_per_project_m", 0.0),
+            "opening_date": r.get("opening_date"),
+        }
+        for r in rows
+    ]
+
+    return {"status": "ok", "excel_key": out_key, "rows": recap_rows, "rows_count": len(rows)}
