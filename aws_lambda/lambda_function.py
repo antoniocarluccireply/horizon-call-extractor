@@ -2,10 +2,12 @@ import os
 import re
 import uuid
 import json
+import calendar
 import boto3
 import urllib.request
 import urllib.error
 import traceback
+from datetime import date
 from pypdf import PdfReader
 from openpyxl import Workbook
 
@@ -128,6 +130,114 @@ def write_xlsx(rows, xlsx_path: str):
     wb.save(xlsx_path)
 
 
+def _parse_date(s: str):
+    """
+    Parse YYYY, YYYY-MM, or YYYY-MM-DD into a date object.
+    Returns None when parsing fails.
+    """
+    txt = (s or "").strip()
+    if not txt:
+        return None
+
+    m_full = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", txt)
+    if m_full:
+        y, mo, d = int(m_full.group(1)), int(m_full.group(2)), int(m_full.group(3))
+        try:
+            return date(y, mo, d)
+        except ValueError:
+            return None
+
+    m_month = re.match(r"^(\d{4})-(\d{2})$", txt)
+    if m_month:
+        y, mo = int(m_month.group(1)), int(m_month.group(2))
+        try:
+            return date(y, mo, calendar.monthrange(y, mo)[1])
+        except ValueError:
+            return None
+
+    m_year = re.match(r"^(\d{4})$", txt)
+    if m_year:
+        y = int(m_year.group(1))
+        try:
+            return date(y, 12, 31)
+        except ValueError:
+            return None
+
+    return None
+
+
+def _parse_filter_range(filter_value: str):
+    """
+    Convert user filter into an (start, end) tuple.
+    - YYYY -> (None, 31 Dec YYYY)
+    - YYYY-Qx -> (None, end_of_quarter)
+    - YYYY-MM -> (None, end_of_month)
+    - YYYY-MM-DD -> (None, that day)
+    Returns None if the filter is empty or invalid.
+    """
+    txt = (filter_value or "").strip()
+    if not txt:
+        return None
+
+    m_year = re.match(r"^(\d{4})$", txt)
+    if m_year:
+        y = int(m_year.group(1))
+        try:
+            return (None, date(y, 12, 31))
+        except ValueError:
+            return None
+
+    m_quarter = re.match(r"^(\d{4})-Q([1-4])$", txt, flags=re.IGNORECASE)
+    if m_quarter:
+        y = int(m_quarter.group(1))
+        q = int(m_quarter.group(2))
+        month_end = q * 3
+        try:
+            end_day = calendar.monthrange(y, month_end)[1]
+            return (None, date(y, month_end, end_day))
+        except ValueError:
+            return None
+
+    m_month = re.match(r"^(\d{4})-(\d{2})$", txt)
+    if m_month:
+        y, mo = int(m_month.group(1)), int(m_month.group(2))
+        try:
+            end_day = calendar.monthrange(y, mo)[1]
+            return (None, date(y, mo, end_day))
+        except ValueError:
+            return None
+
+    m_day = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", txt)
+    if m_day:
+        y, mo, d = int(m_day.group(1)), int(m_day.group(2)), int(m_day.group(3))
+        try:
+            return (None, date(y, mo, d))
+        except ValueError:
+            return None
+
+    return None
+
+
+def _date_filter_match(value: str, filter_value: str) -> bool:
+    """
+    Match dates using inclusive upper-bound logic:
+    - If filter is a valid date/period, include rows with dates <= end_of_period.
+    - Otherwise, fallback to prefix match to avoid breaking existing inputs.
+    """
+    rng = _parse_filter_range(filter_value)
+    if not rng:
+        return _matches_prefix(value, filter_value)
+
+    _start, end = rng
+    row_date = _parse_date(value)
+    if not row_date:
+        return False
+
+    if end and row_date > end:
+        return False
+    return True
+
+
 def filter_rows(
     rows,
     action_types=None,
@@ -157,10 +267,10 @@ def filter_rows(
             if budget_val < min_budget_m:
                 continue
 
-        if not _matches_prefix(r.get("opening_date"), opening_filter):
+        if not _date_filter_match(r.get("opening_date"), opening_filter):
             continue
 
-        if not _matches_prefix(r.get("deadline_date"), deadline_filter):
+        if not _date_filter_match(r.get("deadline_date"), deadline_filter):
             continue
 
         filtered.append(r)
@@ -914,13 +1024,13 @@ HTML = """<!doctype html>
         </div>
         <div class="filter">
           <div class="filterlabel">Opening date</div>
-          <input class="textinput" id="openFilter" type="text" placeholder="e.g. 2024 or 2024-Q1 or 2024-05" aria-label="Filter by opening date"/>
-          <div class="filterhint">Year, quarter (YYYY-Q1), month (YYYY-MM), or exact day (YYYY-MM-DD).</div>
+          <input class="textinput" id="openFilter" type="text" placeholder="e.g. 2026 or 2026-Q1 or 2026-05" aria-label="Filter by opening date"/>
+          <div class="filterhint">Year, quarter (YYYY-Q1), month (YYYY-MM), or exact day (YYYY-MM-DD). Upper bound: dates up to the end of the period.</div>
         </div>
         <div class="filter">
           <div class="filterlabel">Deadline date</div>
-          <input class="textinput" id="deadlineFilter" type="text" placeholder="e.g. 2024 or 2024-Q4 or 2024-11-15" aria-label="Filter by deadline date"/>
-          <div class="filterhint">Year, quarter (YYYY-Qx), month (YYYY-MM), or exact day (YYYY-MM-DD).</div>
+          <input class="textinput" id="deadlineFilter" type="text" placeholder="e.g. 2027 or 2027-Q4 or 2027-11-15" aria-label="Filter by deadline date"/>
+          <div class="filterhint">Year, quarter (YYYY-Qx), month (YYYY-MM), or exact day (YYYY-MM-DD). Year/period filters return all deadlines on or before the end of that period.</div>
         </div>
       </div>
 
@@ -942,10 +1052,10 @@ HTML = """<!doctype html>
         </div>
 
         <div class="stepper" aria-label="steps">
-          <div class="step" id="s1"><span class="badge">1</span><span>Presign</span></div>
-          <div class="step" id="s2"><span class="badge">2</span><span>Upload</span></div>
-          <div class="step" id="s3"><span class="badge">3</span><span>Parsing</span></div>
-          <div class="step" id="s4"><span class="badge">4</span><span>Download</span></div>
+          <div class="step" id="s1"><span class="badge">1</span><span>Presign URL</span></div>
+          <div class="step" id="s2"><span class="badge">2</span><span>Upload to S3</span></div>
+          <div class="step" id="s3"><span class="badge">3</span><span>Parsing + Excel</span></div>
+          <div class="step" id="s4"><span class="badge">4</span><span>Download link</span></div>
         </div>
 
         <div class="statusbox">
@@ -1394,12 +1504,12 @@ $("go").onclick = async () => {
   try {
     // 1) Presign
     setSteps(0, false);
-    setStatus("1/4 • Preparing upload…", "Requesting a presigned URL.");
+    setStatus("1/4 • Presign URL", "Requesting a time-limited S3 upload link.");
     const pres = await fetchJson("/presign");
 
     // 2) Upload S3 (fetch PUT: no Content-Type, keep the fix)
     setSteps(1, true);
-    setStatus("2/4 • Uploading to S3…", "Uploading the PDF.");
+    setStatus("2/4 • Uploading to S3…", "Sending the PDF via the presigned URL.");
     // (fetch does not expose native progress without XHR; use indeterminate)
     const put = await fetch(pres.upload_url, { method: "PUT", body: f });
     if(!put.ok){
@@ -1408,7 +1518,7 @@ $("go").onclick = async () => {
 
     // 3) Process
     setSteps(2, true);
-    setStatus("3/4 • Parsing + generating Excel…", "Extracting calls/topics and building XLSX.");
+    setStatus("3/4 • Parsing + generating Excel…", "Extracting calls/topics and building the spreadsheet.");
     const proc = await fetchJson("/process", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
