@@ -140,6 +140,36 @@ def _extract_call_budget_eur_m(line: str) -> Optional[float]:
     return None
 
 
+def _extract_funding_percentage(line: str) -> Optional[float]:
+    """
+    Return numeric percentage only when the line explicitly mentions funding-related wording.
+    Avoids guessing unrelated percentages.
+    """
+    low = line.lower()
+    if not any(
+        kw in low
+        for kw in [
+            "funding rate",
+            "funding level",
+            "funding intensity",
+            "funding percentage",
+            "eu funding",
+            "union funding",
+            "co-funding",
+            "cofunding",
+        ]
+    ):
+        return None
+
+    m = re.search(r"(\d{1,3})\s?%", line)
+    if not m:
+        return None
+    try:
+        return float(m.group(1))
+    except ValueError:
+        return None
+
+
 def parse_edf(text: str) -> List[Dict]:
     """
     Extract EDF topics with a lightweight heuristic parser.
@@ -182,6 +212,9 @@ def parse_edf(text: str) -> List[Dict]:
             "page": None,
             "topic_description_verbatim": "",
             "is_large_scale": False,
+            "funding_percentage": None,
+            "opening_date": None,
+            "deadline_date": None,
             "_in_desc": False,
             "_awaiting_title": awaiting_title or not cleaned_title,
         }
@@ -238,6 +271,10 @@ def parse_edf(text: str) -> List[Dict]:
         if topic_budget is not None:
             current["indicative_budget_eur_m"] = topic_budget
 
+        funding_pct = _extract_funding_percentage(ln)
+        if funding_pct is not None and current.get("funding_percentage") is None:
+            current["funding_percentage"] = funding_pct
+
         # Number of actions
         if "number of actions" in ln.lower():
             m_num = re.search(r"(\d+)", ln)
@@ -272,6 +309,14 @@ def parse_edf(text: str) -> List[Dict]:
             if current["topic_description_verbatim"]:
                 current["topic_description_verbatim"] += "\n"
             current["topic_description_verbatim"] += raw_ln.rstrip()
+
+        low = ln.lower()
+        if "opening date" in low:
+            tail = ln.split(":", 1)[1].strip() if ":" in ln else ln
+            current["opening_date"] = tail or current.get("opening_date")
+        if "deadline" in low:
+            tail = ln.split(":", 1)[1].strip() if ":" in ln else ln
+            current["deadline_date"] = tail or current.get("deadline_date")
 
         # Topic title fallback (avoid prefatory garbage)
         if (
