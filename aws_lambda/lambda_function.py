@@ -287,9 +287,9 @@ HTML = """<!doctype html>
       margin:0;
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
       color: var(--text);
-      background: radial-gradient(1200px 700px at 8% 5%, rgba(230,222,210,.55), transparent 45%),
-        radial-gradient(1000px 600px at 85% 15%, rgba(224,214,198,.45), transparent 55%),
-        linear-gradient(180deg, #f7f4ed, #f2eee6);
+      background: radial-gradient(1200px 700px at 8% 5%, rgba(255, 170, 170, 0.55), transparent 45%),
+        radial-gradient(1000px 600px at 85% 15%, rgba(240, 90, 90, 0.4), transparent 55%),
+        linear-gradient(180deg, #ffe7e7, #fbd4d4);
       overflow-x:hidden;
     }
 
