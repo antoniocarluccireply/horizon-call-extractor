@@ -36,7 +36,13 @@ Web app serverless per estrarre call Horizon Europe da PDF e generare Excel.
 
 ## Stato attuale
 - ✅ Upload PDF da browser
-- ✅ Parsing Horizon
-- ✅ Excel scaricabile
-- 🔧 UI migliorabile
-- 🔧 Parsing ed Excel migliorabili
+- ✅ Parsing Horizon ed EDF con rilevamento automatico del tipo documento
+- ✅ Excel scaricabile solo su click esplicito
+- ✅ UI mobile-friendly con tabelle per Horizon e EDF
+
+## Manual test checklist
+- Horizon (singolo PDF): upload, rilevamento Horizon, tabella e download Excel.
+- Horizon (multi 2–6 PDF): merge risultati in una tabella/Excel, link Topic ID attivi.
+- EDF (singolo PDF): rilevamento EDF, tabella EDF, download Excel senza link Topic ID.
+- Errore mismatch: caricare PDF EDF su tab Horizon (o viceversa) mostra errore chiaro.
+- Mobile: niente auto-download, dopo il parsing scroll automatico alla tabella risultati, nomi file avvolti senza overflow.
