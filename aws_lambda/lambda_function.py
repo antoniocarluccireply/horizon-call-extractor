@@ -441,7 +441,7 @@ HTML = """<!doctype html>
       --shadow: 0 16px 40px rgba(0,0,0,.22);
       --radius: 16px;
 
-      --hat-img: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%20160%20120%27%3E%3Cpath%20fill%3D%27%23c51235%27%20d%3D%27M12%20114%20L76%2010%20L152%20114%20Z%27/%3E%3Cpath%20fill%3D%27%23d93954%27%20d%3D%27M76%2010%20L130%20114%20L152%20114%20Z%27/%3E%3Crect%20x%3D%2724%27%20y%3D%2792%27%20width%3D%27112%27%20height%3D%2720%27%20rx%3D%2710%27%20fill%3D%27%23f7f2ec%27/%3E%3Ccircle%20cx%3D%2780%27%20cy%3D%2722%27%20r%3D%2715%27%20fill%3D%27%23f7f2ec%27/%3E%3Ccircle%20cx%3D%2758%27%20cy%3D%2786%27%20r%3D%2711%27%20fill%3D%27%23d93954%27%20opacity%3D%270.3%27/%3E%3C/svg%3E");
+      --hat-img: url("data:image/svg+xml,%0A%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%20200%20180%27%3E%0A%20%20%3Cdefs%3E%0A%20%20%20%20%3ClinearGradient%20id%3D%27body%27%20x1%3D%2736%27%20y1%3D%2726%27%20x2%3D%27164%27%20y2%3D%27150%27%20gradientUnits%3D%27userSpaceOnUse%27%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%270%27%20stop-color%3D%27%23d96f7b%27/%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%271%27%20stop-color%3D%27%23c54c5a%27/%3E%0A%20%20%20%20%3C/linearGradient%3E%0A%20%20%3C/defs%3E%0A%20%20%3Cpath%20fill%3D%27url%28%23body%29%27%20d%3D%27M58%20128c-4-34%2024-78%2072-80%2032-2%2056%2022%2054%2050-2%2028-32%2052-74%2052-30%200-50-12-52-22z%27/%3E%0A%20%20%3Cpath%20fill%3D%27%23b43b4c%27%20opacity%3D%27.26%27%20d%3D%27M74%20132c20-3%2032-12%2046-26%2010-10%2022-22%2042-22%208%2020-10%2054-60%2062-14%202-24%201-28-2z%27/%3E%0A%20%20%3Crect%20x%3D%2734%27%20y%3D%27120%27%20width%3D%27136%27%20height%3D%2736%27%20rx%3D%2717%27%20fill%3D%27%23f6efe7%27%20stroke%3D%27%23ebddd2%27%20stroke-width%3D%272%27/%3E%0A%20%20%3Cpath%20stroke%3D%27%23d3b7a7%27%20stroke-width%3D%273.5%27%20stroke-linecap%3D%27round%27%20d%3D%27M48%20132h108m-112%2012h116%27%20opacity%3D%27.75%27/%3E%0A%20%20%3Cpath%20stroke%3D%27%23cfb3a3%27%20stroke-width%3D%273%27%20stroke-linecap%3D%27round%27%20d%3D%27M60%20122v30m18-30v30m18-30v30m18-30v30m18-30v30m18-30v30%27/%3E%0A%20%20%3Cg%20transform%3D%27translate%28130%2030%29%20rotate%28-6%29%27%3E%0A%20%20%20%20%3Ccircle%20cx%3D%270%27%20cy%3D%270%27%20r%3D%2720%27%20fill%3D%27%23f7f1eb%27/%3E%0A%20%20%20%20%3Cpath%20fill%3D%27%23c54c5a%27%20d%3D%27M-6%20-16c8%204%2014%2012%2016%2020-4%202-10%202-16-2-6-4-10-10-12-16%204-2%208-4%2012-2z%27/%3E%0A%20%20%20%20%3Cpath%20fill%3D%27%23b43b4c%27%20opacity%3D%27.45%27%20d%3D%27M-10%206c4%204%2010%206%2016%206%203%200%206-1%209-2-2%206-8%2010-15%2010-10%200-18-7-19-16%203%202%206%203%209%202z%27/%3E%0A%20%20%3C/g%3E%0A%20%20%3Cpath%20fill%3D%27%23e3c7be%27%20d%3D%27M120%2032c10%206%2018%2018%2020%2034-16-6-32-8-48-6%206-18%2014-28%2028-28z%27%20opacity%3D%27.6%27/%3E%0A%3C/svg%3E%0A");
       --reindeer-img: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%20160%20120%27%3E%3Cpath%20fill%3D%27%23f5c77d%27%20d%3D%27M14%2074c18-16%2032-20%2044-20%2016%200%2027%208%2036%208%2010%200%2018-8%2030-20l22%208-14%2014c7%208%207%2018-1%2024s-24%208-34-4c-4%2010-14%2018-28%2018-20%200-32-12-32-30%200-8%203-18%207-24l-18%206c-8%202-16%2010-20%2020z%27/%3E%3Ccircle%20cx%3D%27120%27%20cy%3D%2736%27%20r%3D%278%27%20fill%3D%27%23f7f2ec%27/%3E%3Ccircle%20cx%3D%27118%27%20cy%3D%2734%27%20r%3D%273%27%20fill%3D%27%23c51235%27/%3E%3Cpath%20fill%3D%27none%27%20stroke%3D%27%23f7f2ec%27%20stroke-width%3D%276%27%20stroke-linecap%3D%27round%27%20d%3D%27M92%2040c-4-6-2-14%206-18m14%2018c2-6%200-14-6-18m-74%2058c-4-10%202-24%2012-32%27/%3E%3C/svg%3E");
     }
 
@@ -509,6 +509,7 @@ HTML = """<!doctype html>
       gap:16px;
       margin-bottom: 18px;
       padding: 12px 12px;
+      padding-right: 64px;
       background: rgba(255,255,255,0.92);
       border-radius: calc(var(--radius) + 4px);
       border: 1px solid var(--stroke);
@@ -520,15 +521,15 @@ HTML = """<!doctype html>
     .topbar::after{
       content:"";
       position:absolute;
-      top:-34px;
-      left:16px;
-      width:110px;
-      height:86px;
+      top:-42px;
+      right:-10px;
+      width:138px;
+      height:126px;
       background-image: var(--hat-img);
       background-repeat: no-repeat;
       background-size: contain;
-      transform: rotate(-8deg);
-      filter: drop-shadow(0 10px 14px rgba(0,0,0,.16));
+      transform: rotate(-12deg);
+      filter: drop-shadow(0 12px 20px rgba(0,0,0,.18));
       pointer-events:none;
     }
 
@@ -565,6 +566,32 @@ HTML = """<!doctype html>
     @media (max-width: 860px){
       .brand{ min-width: 0; }
       .logo{ width: 96px; }
+    }
+
+    @media (max-width: 720px){
+      .topbar{
+        padding-right: 56px;
+      }
+      .topbar::after{
+        top:-36px;
+        right:-6px;
+        width:118px;
+        height:108px;
+        transform: rotate(-14deg);
+      }
+    }
+    @media (max-width: 520px){
+      .topbar{
+        align-items: flex-start;
+        padding-right: 46px;
+      }
+      .topbar::after{
+        top:-30px;
+        right:-8px;
+        width:102px;
+        height:96px;
+        transform: rotate(-16deg);
+      }
     }
 
     .card{
