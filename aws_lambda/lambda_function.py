@@ -11,6 +11,7 @@ import traceback
 from datetime import date
 from pypdf import PdfReader
 from openpyxl import Workbook
+from openpyxl.styles import Alignment
 
 from parser_horizon import parse_calls
 from parser_edf import parse_edf
@@ -158,8 +159,10 @@ def _process_pdf_keys(
                     "topic_title": r.get("topic_title"),
                     "type_of_action": r.get("type_of_action"),
                     "indicative_budget_eur_m": r.get("indicative_budget_eur_m"),
+                    "call_indicative_budget_eur_m": r.get("call_indicative_budget_eur_m"),
                     "number_of_actions": r.get("number_of_actions"),
                     "step": r.get("step"),
+                    "topic_description_verbatim": r.get("topic_description_verbatim") or "",
                 }
             )
 
@@ -359,13 +362,24 @@ def _write_edf_xlsx(rows, xlsx_path: str):
         "topic_title",
         "type_of_action",
         "indicative_budget_eur_m",
+        "call_indicative_budget_eur_m",
         "number_of_actions",
         "step",
+        "topic_description_verbatim",
     ]
     ws.append(headers)
 
     for r in rows:
         ws.append([r.get(h) for h in headers])
+
+    # Wrap long verbatim descriptions
+    wrap_align = Alignment(wrap_text=True, vertical="top")
+    desc_col_idx = headers.index("topic_description_verbatim") + 1
+    desc_col_letter = ws.cell(row=1, column=desc_col_idx).column_letter
+    ws.column_dimensions[desc_col_letter].width = 100
+
+    for row_idx in range(2, ws.max_row + 1):
+        ws.cell(row=row_idx, column=desc_col_idx).alignment = wrap_align
 
     wb.save(xlsx_path)
 
