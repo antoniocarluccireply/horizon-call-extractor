@@ -593,7 +593,9 @@ def filter_edf_rows(
                 continue
 
         budget_val = r.get("indicative_budget_eur_m")
-        if isinstance(budget_val, (int, float)):
+        if budget_min_m is not None or budget_max_m is not None:
+            if not isinstance(budget_val, (int, float)):
+                continue
             if budget_min_m is not None and budget_val < budget_min_m:
                 continue
             if budget_max_m is not None and budget_val > budget_max_m:
