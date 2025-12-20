@@ -37,6 +37,11 @@ DEFAULT_MIN_BUDGET_M = float(os.environ.get("DEFAULT_MIN_BUDGET_M", "0"))
 DOC_HORIZON = "horizon"
 DOC_EDF = "edf"
 UI_PATH = os.path.join(os.path.dirname(__file__), "ui.html")
+EDF_CALL_FAMILY_LABELS = {
+    "RA": "RA — Research Actions",
+    "DA": "DA — Development Actions",
+    "CSA": "CSA — Coordination & Support Actions",
+}
 
 try:
     with open(UI_PATH, "r", encoding="utf-8") as f:
@@ -64,6 +69,43 @@ def _topic_url(topic_id: str) -> str:
         if tid
         else ""
         )
+
+
+def _edf_call_family_from_id(call_id: Optional[str]) -> Optional[str]:
+    parts = (call_id or "").split("-")
+    if len(parts) < 3:
+        return None
+    fam = parts[2].upper()
+    return fam if fam in EDF_CALL_FAMILY_LABELS else None
+
+
+def _edf_call_family_label(family: Optional[str]) -> Optional[str]:
+    if not family:
+        return None
+    return EDF_CALL_FAMILY_LABELS.get(str(family).upper())
+
+
+def _edf_scale_label(is_large_scale: bool) -> str:
+    return "Large-scale" if is_large_scale else "Standard"
+
+
+def _edf_is_large_scale(row: Dict) -> bool:
+    def _has_ls(identifier: Optional[str]) -> bool:
+        if not identifier:
+            return False
+        parts = identifier.split("-")
+        return len(parts) >= 4 and any(p.upper() == "LS" for p in parts[3:])
+
+    if _has_ls(row.get("topic_id")) or _has_ls(row.get("call_id")):
+        return True
+
+    text_blob = " ".join(
+        [
+            str(row.get("topic_title") or ""),
+            str(row.get("topic_description_verbatim") or ""),
+        ]
+    )
+    return bool(re.search(r"\blarge[-\s]?scale\b", text_blob, flags=re.IGNORECASE))
 
 
 def _process_pdf_keys(
@@ -129,9 +171,13 @@ def _process_pdf_keys(
 
         # Ensure derived call_family exists
         for r in all_rows:
-            if not r.get("call_family") and r.get("call_id"):
-                parts = r["call_id"].split("-")
-                r["call_family"] = parts[2] if len(parts) >= 3 else None
+            r["call_family"] = r.get("call_family") if r.get("call_family") in EDF_CALL_FAMILY_LABELS else _edf_call_family_from_id(r.get("call_id"))
+            is_large_scale = r.get("is_large_scale")
+            if is_large_scale is None:
+                is_large_scale = False
+            r["is_large_scale"] = bool(is_large_scale or _edf_is_large_scale(r))
+            r["call_family_display"] = _edf_call_family_label(r.get("call_family")) or r.get("call_family")
+            r["scale"] = _edf_scale_label(r["is_large_scale"])
 
         rows = filter_edf_rows(
             all_rows,
@@ -155,6 +201,7 @@ def _process_pdf_keys(
                 {
                     "call_id": r.get("call_id"),
                     "call_family": r.get("call_family"),
+                    "call_family_display": r.get("call_family_display"),
                     "topic_id": r.get("topic_id"),
                     "topic_title": r.get("topic_title"),
                     "type_of_action": r.get("type_of_action"),
@@ -162,6 +209,8 @@ def _process_pdf_keys(
                     "call_indicative_budget_eur_m": r.get("call_indicative_budget_eur_m"),
                     "number_of_actions": r.get("number_of_actions"),
                     "step": r.get("step"),
+                    "is_large_scale": r.get("is_large_scale"),
+                    "scale": r.get("scale"),
                     "topic_description_verbatim": r.get("topic_description_verbatim") or "",
                 }
             )
@@ -358,6 +407,7 @@ def _write_edf_xlsx(rows, xlsx_path: str):
     headers = [
         "call_id",
         "call_family",
+        "call_family_display",
         "topic_id",
         "topic_title",
         "type_of_action",
@@ -365,6 +415,8 @@ def _write_edf_xlsx(rows, xlsx_path: str):
         "call_indicative_budget_eur_m",
         "number_of_actions",
         "step",
+        "scale",
+        "is_large_scale",
         "topic_description_verbatim",
     ]
     ws.append(headers)

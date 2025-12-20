@@ -1,6 +1,12 @@
 import re
 from typing import Dict, List, Optional
 
+CALL_FAMILY_LABELS = {
+    "RA": "RA — Research Actions",
+    "DA": "DA — Development Actions",
+    "CSA": "CSA — Coordination & Support Actions",
+}
+
 RE_TOPIC_LINE = re.compile(
     r"^\s*(?:\d+(?:\.\d+)*\.)?\s*(EDF-\d{4}-[A-Z]{2,}(?:-[A-Z0-9]+)+)\s*:\s*(.+?)\s*$",
     flags=re.IGNORECASE,
@@ -25,11 +31,31 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").replace("\u00ad", "").strip())
 
 
-def _call_family(call_id: Optional[str]) -> Optional[str]:
+def _extract_call_family(call_id: Optional[str]) -> Optional[str]:
     if not call_id:
         return None
     parts = call_id.split("-")
-    return parts[2] if len(parts) >= 3 else None
+    fam = parts[2] if len(parts) >= 3 else None
+    if not fam:
+        return None
+    fam = fam.upper()
+    return fam if fam in CALL_FAMILY_LABELS else None
+
+
+def _has_large_scale_token(identifier: Optional[str]) -> bool:
+    if not identifier:
+        return False
+    parts = identifier.split("-")
+    if len(parts) < 4:
+        return False
+    return any(p.upper() == "LS" for p in parts[3:])
+
+
+def _is_large_scale(call_id: Optional[str], topic_id: Optional[str], title: str, desc: str) -> bool:
+    if _has_large_scale_token(topic_id) or _has_large_scale_token(call_id):
+        return True
+    blob = " ".join([title or "", desc or ""])
+    return bool(re.search(r"\blarge[-\s]?scale\b", blob, flags=re.IGNORECASE))
 
 
 def _to_millions(amount_text: str) -> Optional[float]:
@@ -118,7 +144,8 @@ def parse_edf(text: str) -> List[Dict]:
     """
     Extract EDF topics with a lightweight heuristic parser.
     Fields: call_id, topic_id, topic_title, type_of_action, indicative_budget_eur_m,
-    call_indicative_budget_eur_m, number_of_actions, call_family, step, topic_description_verbatim.
+    call_indicative_budget_eur_m, number_of_actions, call_family, step,
+    topic_description_verbatim, is_large_scale.
     """
     raw_lines = (text or "").splitlines()
 
@@ -150,10 +177,11 @@ def parse_edf(text: str) -> List[Dict]:
             "indicative_budget_eur_m": None,
             "call_indicative_budget_eur_m": None,
             "number_of_actions": None,
-            "call_family": _call_family(_call_family_topic(topic_id)),
+            "call_family": _extract_call_family(_call_family_topic(topic_id)),
             "step": None,
             "page": None,
             "topic_description_verbatim": "",
+            "is_large_scale": False,
             "_in_desc": False,
             "_awaiting_title": awaiting_title or not cleaned_title,
         }
@@ -260,5 +288,9 @@ def parse_edf(text: str) -> List[Dict]:
     for t in topics:
         t.pop("_in_desc", None)
         t.pop("_awaiting_title", None)
+        call_id = t.get("call_id")
+        topic_id = t.get("topic_id")
+        t["call_family"] = _extract_call_family(call_id) or _extract_call_family(topic_id)
+        t["is_large_scale"] = _is_large_scale(call_id, topic_id, t.get("topic_title", ""), t.get("topic_description_verbatim", ""))
 
     return topics
