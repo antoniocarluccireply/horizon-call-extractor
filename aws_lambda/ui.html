@@ -206,10 +206,18 @@
     .label{ color: var(--muted2); font-size: 11px; letter-spacing:.2px; text-transform: uppercase; }
     .idline{ display:flex; gap: 8px; align-items:center; flex-wrap: wrap; overflow-wrap:anywhere; }
     .pill{ background:#e8ddc9; border-radius: 10px; padding: 4px 8px; font-size: 12px; color: #3a281d; }
+    .callline{ display:flex; align-items:center; gap: 8px; flex-wrap: wrap; }
+    .callpill{ background:#d6c5a5; color:#2f241c; font-weight:700; }
     a.link{ color: var(--accent-strong); text-decoration:none; border-bottom: 1px dashed rgba(79,113,80,.55); }
     .subtitle{ color: var(--text); font-weight:600; line-height:1.45; }
     .small{ color: var(--muted2); font-size: 12px; }
     .hint{ color: var(--muted2); font-size: 12px; margin-top: 4px; }
+    .accordion{ border:1px solid #decfbd; border-radius: 12px; background:#fdfbf7; }
+    .accordion summary{ cursor:pointer; font-weight:700; padding: 8px 12px; list-style:none; color: #2f241c; }
+    .accordion summary::-webkit-details-marker{ display:none; }
+    .accordion[open] summary{ border-bottom:1px solid #e6dbcd; background:#f7f1e6; border-radius:12px 12px 0 0; }
+    .accordion-body{ padding: 10px 12px 12px; }
+    .rawtext{ white-space: pre-wrap; font-family: "SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace; font-size: 13px; color:#2f241c; }
     @media (max-width: 760px){
       .wrap{ padding: 0 16px; }
       .filters{ grid-template-columns: 1fr; }
@@ -610,6 +618,11 @@
           pill.className = "pill"; pill.textContent = r.action_type || "—";
           id.appendChild(pill);
           card.appendChild(id);
+          const callLine = document.createElement("div");
+          callLine.className = "callline";
+          const callLabel = document.createElement("span"); callLabel.className = "label"; callLabel.textContent = "Call";
+          const callPill = document.createElement("span"); callPill.className = "pill callpill"; callPill.textContent = r.call_id || "—";
+          callLine.appendChild(callLabel); callLine.appendChild(callPill); card.appendChild(callLine);
           const title = document.createElement("div");
           title.className = "subtitle"; title.textContent = r.topic_title || "—";
           card.appendChild(title);
@@ -632,6 +645,20 @@
             c.appendChild(l); c.appendChild(v); grid.appendChild(c);
           });
           card.appendChild(grid);
+          const accordion = document.createElement("details");
+          accordion.className = "accordion";
+          const summary = document.createElement("summary"); summary.textContent = "Testo estratto";
+          const body = document.createElement("div"); body.className = "accordion-body";
+          const raw = document.createElement("div"); raw.className = "rawtext";
+          raw.textContent = [
+            `Call: ${r.call_id || "—"}`,
+            `Topic ID: ${r.topic_id || "—"}`,
+            `Titolo: ${r.topic_title || "—"}`,
+            `Azione: ${r.action_type || "—"}`
+          ].join("\n");
+          body.appendChild(raw);
+          accordion.appendChild(summary); accordion.appendChild(body);
+          card.appendChild(accordion);
           box.appendChild(card);
         });
       } else {
@@ -645,6 +672,11 @@
           const tid = document.createElement("span"); tid.textContent = r.topic_id || "—";
           id.appendChild(tid);
           card.appendChild(id);
+          const callLine = document.createElement("div");
+          callLine.className = "callline";
+          const callLabel = document.createElement("span"); callLabel.className = "label"; callLabel.textContent = "Call";
+          const callPill = document.createElement("span"); callPill.className = "pill callpill"; callPill.textContent = r.call_id || "—";
+          callLine.appendChild(callLabel); callLine.appendChild(callPill); card.appendChild(callLine);
           const title = document.createElement("div"); title.className = "subtitle"; title.textContent = r.topic_title || "—";
           card.appendChild(title);
 
@@ -664,6 +696,22 @@
             c.appendChild(l); c.appendChild(v); grid.appendChild(c);
           });
           card.appendChild(grid);
+          const accordion = document.createElement("details");
+          accordion.className = "accordion";
+          const summary = document.createElement("summary"); summary.textContent = "Testo estratto";
+          const body = document.createElement("div"); body.className = "accordion-body";
+          const raw = document.createElement("div"); raw.className = "rawtext";
+          raw.textContent = [
+            `Call: ${r.call_id || "—"}`,
+            `Topic ID: ${r.topic_id || "—"}`,
+            `Titolo: ${r.topic_title || "—"}`,
+            `Azione: ${r.type_of_action || "—"}`,
+            `Budget indicativo: ${formatBudget(r.indicative_budget_eur_m)}`,
+            `STEP: ${formatStepValue(r.step)}`
+          ].join("\n");
+          body.appendChild(raw);
+          accordion.appendChild(summary); accordion.appendChild(body);
+          card.appendChild(accordion);
           box.appendChild(card);
         });
       }
