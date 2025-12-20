@@ -1,0 +1,770 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Horizon & EDF Call Extractor</title>
+  <style>
+    :root{
+      --bg:#f9f2ec;
+      --card:rgba(255,255,255,0.96);
+      --stroke:rgba(255,255,255,0.7);
+      --text:#1f0f0f;
+      --muted:#5d2e2e;
+      --muted2:#7a4a4a;
+      --accent:#d9a441;
+      --accent-strong:#b97a24;
+      --good:#2f855a;
+      --warn:#d97706;
+      --bad:#b23b3b;
+      --shadow: 0 16px 40px rgba(0,0,0,.22);
+      --radius: 16px;
+    }
+    *{ box-sizing:border-box; }
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      color: var(--text);
+      background:
+        radial-gradient(1100px 820px at 16% 12%, rgba(255, 228, 228, 0.16), transparent 55%),
+        radial-gradient(900px 620px at 82% 18%, rgba(255, 190, 190, 0.16), transparent 55%),
+        radial-gradient(1600px 980px at 50% -8%, rgba(255, 225, 225, 0.12), transparent 60%),
+        linear-gradient(180deg, #b01231, #8c0d27 52%, #5c0818);
+    }
+    .wrap{
+      max-width: 1100px;
+      margin: 32px auto 80px;
+      padding: 0 20px;
+    }
+    .topbar{
+      display:flex;
+      align-items:center;
+      gap:14px;
+      background: rgba(255,255,255,0.94);
+      border-radius: calc(var(--radius) + 4px);
+      padding: 14px 16px;
+      border: 1px solid var(--stroke);
+      box-shadow: 0 12px 30px rgba(0,0,0,.18);
+    }
+    .logo{
+      width: 104px;
+      height:auto;
+      border-radius: 12px;
+      background:#fff;
+      padding: 10px;
+      box-shadow: 0 10px 26px rgba(0,0,0,.18);
+      border: 1px solid rgba(255,255,255,.8);
+      flex-shrink:0;
+    }
+    .brand h1{ margin:0; font-size: 18px; }
+    .brand p{ margin:4px 0 0; color: var(--muted); font-size: 13px; line-height:1.5; }
+    .card{
+      margin-top: 18px;
+      background: var(--card);
+      border: 1px solid var(--stroke);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px;
+    }
+    .tabs{
+      display:flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .tab{
+      border:1px solid #dbcfc4;
+      background:#f5f0e8;
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 12px;
+      cursor:pointer;
+      font-weight:700;
+    }
+    .tab.active{
+      border-color: var(--accent);
+      color: #2f241c;
+      box-shadow: 0 6px 16px rgba(79,113,80,.22);
+    }
+    .filters{
+      margin: 14px 0 12px;
+      display:grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 12px;
+    }
+    .filterlabel{
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing:.3px;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .textinput, select{
+      width: 100%;
+      border: 1px solid #d9d1c4;
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      font-size: 14px;
+      background: #fffdfa;
+      color: var(--text);
+    }
+    .textinput:disabled{ background: #f4f0e8; color: var(--muted); }
+    .sliderwrap{
+      background:#f9f6f1;
+      border:1px solid #e6ded3;
+      border-radius: 14px;
+      padding: 12px;
+    }
+    .dropdown{
+      display:none;
+      border:1px solid #d9d1c4;
+      border-radius: 14px;
+      padding: 10px;
+      background:#ffffff;
+      box-shadow: 0 14px 28px rgba(28,25,20,.12);
+    }
+    .textinput.clickable{ cursor:pointer; }
+    .bubble{
+      display:inline-block;
+      padding: 6px 10px;
+      border-radius: 10px;
+      background: #2f855a;
+      color:#fff;
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 8px;
+      box-shadow: 0 10px 22px rgba(47,133,90,.24);
+    }
+    .dropzone{
+      position: relative;
+      border-radius: 16px;
+      border: 1px dashed rgba(107,139,95,.45);
+      background: #f9f6f1;
+      padding: 18px;
+      transition: .15s ease;
+    }
+    .dropzone.drag{
+      border-color: var(--accent);
+      box-shadow: 0 0 0 4px rgba(107,139,95,.12);
+      transform: translateY(-1px);
+      background: #f4f0e8;
+    }
+    .dzrow{ display:flex; gap: 12px; align-items:flex-start; flex-wrap: wrap; }
+    .filemeta{ flex:1 1 auto; min-width: 220px; }
+    .filename{
+      font-weight: 650;
+      font-size: 14px;
+      overflow-wrap:anywhere;
+      word-break: break-word;
+    }
+    .filelist{ margin:6px 0 0; padding-left: 16px; color: var(--muted2); font-size: 12px; line-height:1.35; }
+    .filesub{ color: var(--muted2); font-size: 12px; }
+    .actions{ display:flex; gap: 10px; flex-wrap: wrap; }
+    .btn{
+      appearance:none;
+      border:1px solid var(--stroke);
+      background: #f0ede6;
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 12px;
+      cursor:pointer;
+      font-weight: 650;
+      font-size: 13px;
+      display:inline-flex;
+      align-items:center;
+      gap: 8px;
+    }
+    .btn.primary{
+      border: none;
+      background: linear-gradient(90deg, var(--accent), var(--accent-strong));
+      color: #ffffff;
+      box-shadow: 0 8px 22px rgba(79,113,80,.28);
+    }
+    .btn.success{ background: linear-gradient(90deg, var(--good), #2a6f4c); color:#fff; }
+    .btn:disabled{ opacity:.6; cursor:not-allowed; }
+    input[type=file]{ position:absolute; inset:0; opacity:0; pointer-events:none; }
+    .progress{ margin-top: 12px; height: 10px; border-radius: 999px; background: #e6dfd3; border:1px solid #d9d2c7; overflow:hidden; }
+    .bar{ width:0%; height:100%; border-radius:999px; background: linear-gradient(90deg, #88a17f, var(--accent)); transition: width .2s ease; }
+    .bar.indet{ width:100%; animation: indet 1.2s infinite linear; transform-origin:left; }
+    @keyframes indet{ 0%{ transform: translateX(-100%);} 100%{ transform: translateX(100%);} }
+    .stepper{ margin-top: 14px; display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .step{ border: 1px solid #d7d1c7; background: #faf7f2; border-radius: 12px; padding: 10px 12px; color: var(--muted2); font-size: 12px; display:flex; align-items:center; gap: 10px; min-height: 44px; }
+    .badge{ width: 22px;height:22px;border-radius: 8px; display:flex;align-items:center;justify-content:center; border: 1px solid #d7d1c7; background: #ede6db; color: var(--muted); font-weight: 750; font-size: 12px; flex: 0 0 auto; }
+    .step.active{ color: var(--text); border-color: rgba(107,139,95,.6); background: rgba(107,139,95,.12); }
+    .step.done{ color: #244c38; border-color: rgba(47,133,90,.35); background: rgba(47,133,90,.12); }
+    .statusbox{ margin-top: 14px; border-radius: 14px; padding: 12px; border: 1px solid #dcd4c9; background: #f9f7f2; }
+    .statusline{ display:flex; align-items:flex-start; gap: 10px; font-size: 13px; color: var(--muted); white-space: pre-wrap; line-height: 1.45; }
+    .kpi{ margin-top: 10px; display:flex; gap: 10px; flex-wrap: wrap; align-items:center; }
+    .chip{ border: 1px solid #d7d1c7; background: #f1ece4; border-radius: 999px; padding: 7px 10px; font-size: 12px; color: var(--muted); display:inline-flex; align-items:center; gap: 8px; }
+    .results{ display:none; }
+    .results.active{ display:block; }
+    .table{ margin-top: 10px; display: grid; gap: 10px; }
+    .row-card{ border:1px solid #e0d7c9; background:#f9f6f1; border-radius: 14px; padding: 12px; display:grid; gap: 8px; }
+    .row-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px 12px; }
+    .cell{ display:flex; flex-direction:column; gap:4px; }
+    .label{ color: var(--muted2); font-size: 11px; letter-spacing:.2px; text-transform: uppercase; }
+    .idline{ display:flex; gap: 8px; align-items:center; flex-wrap: wrap; }
+    .pill{ background:#e8ddc9; border-radius: 10px; padding: 4px 8px; font-size: 12px; color: #3a281d; }
+    a.link{ color: var(--accent-strong); text-decoration:none; border-bottom: 1px dashed rgba(79,113,80,.55); }
+    .subtitle{ color: var(--text); font-weight:600; }
+    .small{ color: var(--muted2); font-size: 12px; }
+    .hint{ color: var(--muted2); font-size: 12px; margin-top: 4px; }
+    @media (max-width: 760px){
+      .wrap{ padding: 0 16px; }
+      .filters{ grid-template-columns: 1fr; }
+      .stepper{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 520px){
+      .stepper{ display:flex; flex-direction: column; }
+      .dropzone{ padding: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <img class="logo" alt="Adeptic" src="data:image/png;base64,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" />
+      <div class="brand">
+        <h1>Horizon & EDF Call Extractor</h1>
+        <p>Upload Horizon or EDF PDFs → automatic detection → tables + Excel on click. Mobile-friendly, no auto-downloads.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="tabs">
+        <button class="tab active" data-tab="horizon" id="tab-horizon">Horizon</button>
+        <button class="tab" data-tab="edf" id="tab-edf">EDF</button>
+      </div>
+      <p class="hint">The backend checks PDF text (“Horizon Europe”, “Work Programme”, “EDF-2026-…”) to prevent mismatches.</p>
+
+      <div class="filters" data-panel="horizon">
+        <div>
+          <div class="filterlabel">Call types</div>
+          <div class="textinput clickable" id="typeSummary">All types</div>
+          <div class="hint">Tap below to edit</div>
+          <div class="dropdown" id="typeMenu" style="margin-top:6px; display:none;">
+            <div class="actions" style="margin-bottom:6px;">
+              <button class="btn" type="button" id="typeAll">Select all</button>
+              <button class="btn" type="button" id="typeNone">Select none</button>
+            </div>
+            <div id="typeList"></div>
+          </div>
+        </div>
+        <div>
+          <div class="filterlabel">Min. budget per project (M€)</div>
+          <div class="sliderwrap">
+            <div class="bubble" id="budgetBubble">0 M€</div>
+            <input type="range" id="budget" min="0" max="15" step="1" value="0" aria-label="Minimum budget per project in million euros"/>
+            <div class="hint">Supports 15+ when moved to the end.</div>
+          </div>
+        </div>
+        <div>
+          <div class="filterlabel">Opening date</div>
+          <input class="textinput" id="openFilter" type="text" placeholder="2026 or 2026-Q1 or 2026-05"/>
+        </div>
+        <div>
+          <div class="filterlabel">Deadline date</div>
+          <input class="textinput" id="deadlineFilter" type="text" placeholder="2027 or 2027-11-15"/>
+        </div>
+      </div>
+
+      <div class="filters" data-panel="edf" style="display:none;">
+        <div>
+          <div class="filterlabel">Call family (RA / DA / LS / etc.)</div>
+          <input class="textinput" id="edfFamily" type="text" placeholder="RA" />
+        </div>
+        <div>
+          <div class="filterlabel">Indicative budget min (M€)</div>
+          <input class="textinput" id="edfBudgetMin" type="number" min="0" step="0.1" placeholder="e.g. 5" />
+        </div>
+        <div>
+          <div class="filterlabel">Indicative budget max (M€)</div>
+          <input class="textinput" id="edfBudgetMax" type="number" min="0" step="0.1" placeholder="e.g. 20" />
+        </div>
+        <div>
+          <div class="filterlabel">STEP</div>
+          <select id="edfStep">
+            <option value="">Any</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="dropzone" id="dz">
+        <input id="fileInput" type="file" accept="application/pdf" multiple />
+        <div class="dzrow">
+          <div class="filemeta">
+            <div class="filename" id="filename">No files selected</div>
+            <div class="filesub" id="filesub">Horizon: upload 1–6 PDFs. EDF: single PDF.</div>
+            <ul class="filelist" id="filelist"></ul>
+          </div>
+          <div class="actions">
+            <button class="btn" id="clear" disabled>Remove</button>
+            <button class="btn primary" id="go" disabled>Generate Excel</button>
+          </div>
+        </div>
+        <div class="progress" aria-label="progress">
+          <div class="bar" id="bar"></div>
+        </div>
+        <div class="stepper" aria-label="steps">
+          <div class="step" id="s1"><span class="badge">1</span><span>Presign URL</span></div>
+          <div class="step" id="s2"><span class="badge">2</span><span>Upload PDFs</span></div>
+          <div class="step" id="s3"><span class="badge">3</span><span>Parse + Excel</span></div>
+          <div class="step" id="s4"><span class="badge">4</span><span>Download link</span></div>
+        </div>
+        <div class="statusbox">
+          <div class="statusline" id="status">
+            <div>
+              <div class="ok" id="statusMain">Select PDF(s) to get started.</div>
+              <div class="hint" id="statusSub">Drag & drop or tap to choose. No auto-downloads on mobile.</div>
+            </div>
+          </div>
+          <div class="kpi" id="kpi" style="display:none;">
+            <div class="chip">Rows: <strong id="rows">0</strong></div>
+            <div class="chip">Status: <strong id="final">Ready</strong></div>
+            <button class="btn primary" id="downloadBtn" style="display:none;">Download Excel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card results active" id="results-horizon">
+      <h3>Horizon table</h3>
+      <p class="hint">Mobile-friendly cards, Topic ID links to the Funding &amp; Tenders portal. Action type shown next to the topic ID.</p>
+      <div class="table" id="table-horizon"></div>
+    </div>
+
+    <div class="card results" id="results-edf">
+      <h3>EDF table</h3>
+      <p class="hint">Topic IDs stay as text (no links). Fields: call, topic, action, indicative budget, number of actions, STEP.</p>
+      <div class="table" id="table-edf"></div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const ACTION_TYPES = ["RIA","IA","CSA","PCP","PPI","COFUND","ERC","MSCA","EIC-PATHFINDER","EIC-TRANSITION","EIC-ACCELERATOR"];
+    const state = {
+      activeTab: "horizon",
+      tabs: {
+        horizon: { files: [], selectedTypes: new Set(ACTION_TYPES), minBudget: 0, openingFilter: "", deadlineFilter: "" },
+        edf: { files: [], callFamily: "", budgetMin: "", budgetMax: "", step: "" },
+      },
+      results: {
+        horizon: { rows: [], downloadUrl: null, rowsCount: 0 },
+        edf: { rows: [], downloadUrl: null, rowsCount: 0 },
+      },
+      busy: false,
+    };
+
+    function fmtBytes(bytes){
+      const u = ["B","KB","MB","GB"];
+      let i = 0; let n = bytes;
+      while(n >= 1024 && i < u.length-1){ n/=1024; i++; }
+      return (i === 0 ? n : n.toFixed(1)) + " " + u[i];
+    }
+
+    function formatBudget(val){
+      const num = Number(val);
+      if(Number.isNaN(num)) return "—";
+      if(num >= 15) return "15+ M€";
+      return `${num} M€`;
+    }
+
+    function updateTypeSummary(){
+      const sel = state.tabs.horizon.selectedTypes;
+      const size = sel.size;
+      let summary = "All types";
+      if(size === ACTION_TYPES.length){ summary = "All types"; }
+      else if(size === 1){ summary = Array.from(sel)[0]; }
+      else if(size > 1){ summary = `${Array.from(sel)[0]} +${size-1}`; }
+      $("typeSummary").textContent = summary;
+    }
+
+    function renderTypeList(){
+      const box = $("typeList");
+      box.innerHTML = "";
+      ACTION_TYPES.forEach(t => {
+        const lbl = document.createElement("label");
+        lbl.style.display = "inline-flex";
+        lbl.style.alignItems = "center";
+        lbl.style.gap = "8px";
+        lbl.style.marginRight = "10px";
+        lbl.style.marginBottom = "6px";
+        const input = document.createElement("input");
+        input.type = "checkbox"; input.value = t; input.checked = state.tabs.horizon.selectedTypes.has(t);
+        input.onchange = () => {
+          if(input.checked) state.tabs.horizon.selectedTypes.add(t); else state.tabs.horizon.selectedTypes.delete(t);
+          updateTypeSummary();
+        };
+        const span = document.createElement("span"); span.textContent = t;
+        lbl.appendChild(input); lbl.appendChild(span); box.appendChild(lbl);
+      });
+      updateTypeSummary();
+    }
+
+    function setBudget(val){
+      const num = Math.min(15, Math.max(0, Math.round(Number(val) || 0)));
+      state.tabs.horizon.minBudget = num;
+      $("budget").value = String(num);
+      $("budgetBubble").textContent = formatBudget(num);
+    }
+
+    function setStatus(main, sub, isError=false){
+      $("statusMain").textContent = main;
+      $("statusSub").textContent = sub || "";
+      $("final").textContent = isError ? "ERROR" : "Ready";
+      $("final").style.color = isError ? "var(--bad)" : "var(--text)";
+    }
+
+    function barNone(){ $("bar").classList.remove("indet"); $("bar").style.width = "0%"; }
+    function barIndeterminate(){ $("bar").classList.add("indet"); }
+    function barSet(pct){ $("bar").classList.remove("indet"); $("bar").style.width = pct + "%"; }
+
+    function setSteps(activeIdx, doneBefore=false){
+      const steps = [$("s1"),$("s2"),$("s3"),$("s4")];
+      steps.forEach((el, idx) => {
+        el.classList.remove("active","done");
+        if(doneBefore && idx < activeIdx) el.classList.add("done");
+        if(idx === activeIdx) el.classList.add("active");
+      });
+    }
+    function clearSteps(){ [$("s1"),$("s2"),$("s3"),$("s4")].forEach(el => el.classList.remove("active","done")); }
+
+    function setBusy(busy){
+      state.busy = busy;
+      $("go").disabled = busy || !(state.tabs[state.activeTab].files.length);
+      $("clear").disabled = busy || !(state.tabs[state.activeTab].files.length);
+      $("fileInput").disabled = busy;
+      $("budget").disabled = busy;
+      $("openFilter").disabled = busy;
+      $("deadlineFilter").disabled = busy;
+      $("edfFamily").disabled = busy;
+      $("edfBudgetMin").disabled = busy;
+      $("edfBudgetMax").disabled = busy;
+      $("edfStep").disabled = busy;
+    }
+
+    function setFiles(tab, files){
+      state.tabs[tab].files = files || [];
+      state.results[tab] = { rows: [], downloadUrl: null, rowsCount: 0 };
+      $("downloadBtn").style.display = "none";
+      $("kpi").style.display = "none";
+      renderFileList();
+      setBusy(false);
+      if(files.length){
+        setStatus("Ready to generate Excel.", `${files.length} PDF${files.length>1?"s":""} selected.`);
+      } else {
+        setStatus("Select PDF(s) to get started.", "Drag & drop or tap to choose.");
+        clearSteps(); barNone();
+      }
+    }
+
+    function renderFileList(){
+      const files = state.tabs[state.activeTab].files;
+      if(!files.length){
+        $("filename").textContent = "No files selected";
+        $("filesub").textContent = "Horizon: upload 1–6 PDFs. EDF: single PDF.";
+        $("filelist").innerHTML = "";
+        return;
+      }
+      $("filename").textContent = files.length === 1 ? (files[0].name || "file.pdf") : `${files.length} PDFs selected`;
+      $("filesub").textContent = files.length === 1 ? `${fmtBytes(files[0].size)} • ${(files[0].type || "application/pdf")}` : "Multi-upload enabled (Horizon only).";
+      $("filelist").innerHTML = files.map(f => `<li>${f.name || "file.pdf"}</li>`).join("");
+    }
+
+    function switchTab(tab){
+      if(state.activeTab === tab) return;
+      state.activeTab = tab;
+      document.querySelectorAll(".tab").forEach(btn => btn.classList.toggle("active", btn.dataset.tab === tab));
+      document.querySelector('[data-panel=\"horizon\"]').style.display = tab === "horizon" ? "grid" : "none";
+      document.querySelector('[data-panel=\"edf\"]').style.display = tab === "edf" ? "grid" : "none";
+      $("results-horizon").classList.toggle("active", tab === "horizon");
+      $("results-edf").classList.toggle("active", tab === "edf");
+      $("fileInput").multiple = tab === "horizon";
+      setFiles(tab, state.tabs[tab].files);
+      renderResults(tab);
+    }
+
+    function isPdfFile(f){
+      const nameOk = (f.name || "").toLowerCase().endsWith(".pdf");
+      const typeOk = (f.type || "") === "application/pdf";
+      return nameOk || typeOk;
+    }
+
+    const dz = $("dz");
+    dz.addEventListener("click", (e) => {
+      if(e.target.closest("button")) return;
+      $("fileInput").click();
+    });
+    ["dragenter","dragover"].forEach(evt => dz.addEventListener(evt, (e) => {
+      e.preventDefault(); e.stopPropagation(); dz.classList.add("drag");
+    }));
+    ["dragleave","drop"].forEach(evt => dz.addEventListener(evt, (e) => {
+      e.preventDefault(); e.stopPropagation(); dz.classList.remove("drag");
+    }));
+    dz.addEventListener("drop", (e) => {
+      const files = Array.from(e.dataTransfer?.files || []).filter(isPdfFile);
+      if(!files.length){
+        setStatus("Invalid format.", "Select PDF files (.pdf).", true);
+        return;
+      }
+      applyFileSelection(files);
+    });
+
+    function applyFileSelection(files){
+      const tab = state.activeTab;
+      if(tab === "horizon" && files.length > 6){
+        setStatus("Too many files.", "Upload up to 6 Horizon PDFs at once.", true);
+        return;
+      }
+      if(tab === "edf" && files.length !== 1){
+        setStatus("EDF accepts one PDF per run.", "Please select a single EDF PDF.", true);
+        return;
+      }
+      if(!files.every(isPdfFile)){
+        setStatus("Invalid format.", "Select PDF files (.pdf).", true);
+        return;
+      }
+      setFiles(tab, files);
+    }
+
+    $("fileInput").addEventListener("change", () => {
+      const files = Array.from($("fileInput").files || []);
+      if(!files.length) return;
+      applyFileSelection(files);
+      $("fileInput").value = "";
+    });
+
+    $("clear").onclick = () => { setFiles(state.activeTab, []); $("fileInput").value = ""; };
+
+    $("typeSummary").onclick = () => { $("typeMenu").style.display = $("typeMenu").style.display === "block" ? "none" : "block"; };
+    $("typeAll").onclick = () => { state.tabs.horizon.selectedTypes = new Set(ACTION_TYPES); updateTypeSummary(); };
+    $("typeNone").onclick = () => { state.tabs.horizon.selectedTypes = new Set(); updateTypeSummary(); };
+    document.addEventListener("click", (e) => {
+      if(e.target === $("typeSummary") || $("typeMenu").contains(e.target)) return;
+      $("typeMenu").style.display = "none";
+    });
+
+    $("budget").addEventListener("input", (e) => setBudget(e.target.value));
+    $("openFilter").addEventListener("input", (e) => state.tabs.horizon.openingFilter = (e.target.value || "").trim());
+    $("deadlineFilter").addEventListener("input", (e) => state.tabs.horizon.deadlineFilter = (e.target.value || "").trim());
+    $("edfFamily").addEventListener("input", (e) => state.tabs.edf.callFamily = (e.target.value || "").trim());
+    $("edfBudgetMin").addEventListener("input", (e) => state.tabs.edf.budgetMin = e.target.value);
+    $("edfBudgetMax").addEventListener("input", (e) => state.tabs.edf.budgetMax = e.target.value);
+    $("edfStep").addEventListener("change", (e) => state.tabs.edf.step = e.target.value);
+
+    $("tab-horizon").onclick = () => switchTab("horizon");
+    $("tab-edf").onclick = () => switchTab("edf");
+
+    $("downloadBtn").onclick = () => {
+      const dl = state.results[state.activeTab].downloadUrl;
+      if(dl) window.location = dl;
+    };
+
+    function formatStepValue(v){
+      if(v === true) return "Yes";
+      if(v === false) return "No";
+      return "—";
+    }
+
+    function renderResults(tab){
+      const res = state.results[tab];
+      $("rows").textContent = String(res.rowsCount || res.rows.length || 0);
+      $("kpi").style.display = res.rows.length ? "flex" : "none";
+      const dlBtn = $("downloadBtn");
+      dlBtn.style.display = res.downloadUrl ? "inline-flex" : "none";
+      dlBtn.classList.toggle("success", Boolean(res.downloadUrl));
+
+      if(tab === "horizon"){
+        const box = $("table-horizon");
+        box.innerHTML = "";
+        res.rows.forEach((r) => {
+          const card = document.createElement("div");
+          card.className = "row-card";
+          const id = document.createElement("div");
+          id.className = "idline";
+          if(r.topic_url){
+            const a = document.createElement("a");
+            a.href = r.topic_url;
+            a.target = "_blank"; a.rel = "noreferrer";
+            a.textContent = r.topic_id || "—";
+            a.className = "link";
+            id.appendChild(a);
+          } else {
+            const span = document.createElement("span");
+            span.textContent = r.topic_id || "—";
+            id.appendChild(span);
+          }
+          const pill = document.createElement("span");
+          pill.className = "pill"; pill.textContent = r.action_type || "—";
+          id.appendChild(pill);
+          card.appendChild(id);
+          const title = document.createElement("div");
+          title.className = "subtitle"; title.textContent = r.topic_title || "—";
+          card.appendChild(title);
+
+          const grid = document.createElement("div");
+          grid.className = "row-grid";
+          const fields = [
+            ["Call ID", r.call_id || "—"],
+            ["TRL", r.trl || "—"],
+            ["Budget (M€)", formatBudget(r.budget_per_project_min_eur_m)],
+            ["Opening date", r.opening_date || "—"],
+            ["Deadline date", r.deadline_date || "—"],
+            ["Page", r.page || "—"],
+          ];
+          fields.forEach(([label, value]) => {
+            const c = document.createElement("div");
+            c.className = "cell";
+            const l = document.createElement("span"); l.className = "label"; l.textContent = label;
+            const v = document.createElement("span"); v.textContent = value ?? "—";
+            c.appendChild(l); c.appendChild(v); grid.appendChild(c);
+          });
+          card.appendChild(grid);
+          box.appendChild(card);
+        });
+      } else {
+        const box = $("table-edf");
+        box.innerHTML = "";
+        res.rows.forEach((r) => {
+          const card = document.createElement("div");
+          card.className = "row-card";
+          const id = document.createElement("div");
+          id.className = "idline";
+          const tid = document.createElement("span"); tid.textContent = r.topic_id || "—";
+          id.appendChild(tid);
+          card.appendChild(id);
+          const title = document.createElement("div"); title.className = "subtitle"; title.textContent = r.topic_title || "—";
+          card.appendChild(title);
+
+          const grid = document.createElement("div"); grid.className = "row-grid";
+          const fields = [
+            ["Call ID", r.call_id || "—"],
+            ["Call family", r.call_family || "—"],
+            ["Type of action", r.type_of_action || "—"],
+            ["Indicative budget (M€)", formatBudget(r.indicative_budget_eur_m)],
+            ["Number of actions", r.number_of_actions ?? "—"],
+            ["STEP", formatStepValue(r.step)],
+          ];
+          fields.forEach(([label, value]) => {
+            const c = document.createElement("div"); c.className = "cell";
+            const l = document.createElement("span"); l.className = "label"; l.textContent = label;
+            const v = document.createElement("span"); v.textContent = value ?? "—";
+            c.appendChild(l); c.appendChild(v); grid.appendChild(c);
+          });
+          card.appendChild(grid);
+          box.appendChild(card);
+        });
+      }
+    }
+
+    function resetResult(tab){
+      state.results[tab] = { rows: [], downloadUrl: null, rowsCount: 0 };
+      $("downloadBtn").style.display = "none";
+      $("downloadBtn").classList.remove("success");
+      $("kpi").style.display = "none";
+      renderResults(tab);
+    }
+
+    async function fetchJson(url, opts){
+      const res = await fetch(url, opts);
+      const text = await res.text();
+      let data = null;
+      try{ data = text ? JSON.parse(text) : null; }catch(e){}
+      if(!res.ok){
+        const msg = (data && (data.message || data.error)) ? (data.message || data.error) : (text || ("HTTP " + res.status));
+        const err = new Error(msg); err.status = res.status; err.payload = data; throw err;
+      }
+      return data;
+    }
+
+    $("go").onclick = async () => {
+      const tab = state.activeTab;
+      const files = state.tabs[tab].files;
+      if(!files.length){
+        setStatus("Select PDF(s).", tab === "horizon" ? "Upload 1–6 Horizon PDFs." : "Upload one EDF PDF.", true);
+        return;
+      }
+      setBusy(true); resetResult(tab); barIndeterminate();
+      try{
+        // Presign
+        setSteps(0, false);
+        setStatus("1/4 • Presign URL", "Requesting S3 upload links.");
+        const pres = await fetchJson(`/presign?count=${files.length}`);
+        const uploads = pres.uploads || (pres.upload_url ? [{ upload_url: pres.upload_url, pdf_key: pres.pdf_key }] : []);
+        if(uploads.length !== files.length){
+          throw new Error("Presign count mismatch.");
+        }
+
+        // Upload
+        setSteps(1, true);
+        for(let i=0; i<uploads.length; i++){
+          setStatus(`2/4 • Uploading ${i+1}/${uploads.length}`, files[i].name || "");
+          const put = await fetch(uploads[i].upload_url, { method:"PUT", body: files[i] });
+          if(!put.ok) throw new Error("Upload failed: HTTP " + put.status);
+        }
+
+        // Process
+        setSteps(2, true);
+        setStatus("3/4 • Parsing + Excel…", "Detecting document family, applying filters, building workbook.");
+        const payload = {
+          pdf_keys: uploads.map(u => u.pdf_key),
+          expected_type: tab,
+          original_names: files.map(f => f.name || ""),
+        };
+        if(tab === "horizon"){
+          payload.action_types = Array.from(state.tabs.horizon.selectedTypes);
+          payload.min_budget_m = state.tabs.horizon.minBudget;
+          payload.opening_filter = state.tabs.horizon.openingFilter;
+          payload.deadline_filter = state.tabs.horizon.deadlineFilter;
+        } else {
+          payload.edf_filters = {
+            call_family: state.tabs.edf.callFamily,
+            budget_min_m: state.tabs.edf.budgetMin,
+            budget_max_m: state.tabs.edf.budgetMax,
+            step: state.tabs.edf.step,
+          };
+        }
+
+        const proc = await fetchJson("/process", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        // Download link
+        setSteps(3, true);
+        setStatus("4/4 • Preparing download…", "Creating a temporary Excel link.");
+        const dl = await fetchJson("/download", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ excel_key: proc.excel_key }),
+        });
+
+        state.results[tab] = { rows: proc.rows || [], downloadUrl: dl.download_url, rowsCount: proc.rows_count || 0 };
+        barSet(100);
+        [$("s1"),$("s2"),$("s3"),$("s4")].forEach(el => { el.classList.remove("active"); el.classList.add("done"); });
+        renderResults(tab);
+        setStatus("Completed ✅", "Download available on button click. No auto-downloads.");
+        const container = tab === "horizon" ? $("results-horizon") : $("results-edf");
+        container.scrollIntoView({ behavior: "smooth", block: "start" });
+      }catch(e){
+        barNone(); clearSteps();
+        const msg = e?.message || String(e);
+        const detail = e?.status ? `HTTP ${e.status}. ` : "";
+        setStatus("Error during processing.", detail + msg, true);
+      }finally{
+        setBusy(false);
+      }
+    };
+
+    // init
+    renderTypeList();
+    setBudget(state.tabs.horizon.minBudget);
+    renderResults("horizon");
+  </script>
+</body>
+</html>
