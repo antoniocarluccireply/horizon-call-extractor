@@ -448,10 +448,10 @@ HTML = """<!doctype html>
       margin:0;
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
       color: var(--text);
-      background: radial-gradient(900px 600px at 12% 8%, rgba(255, 215, 170, 0.25), transparent 55%),
-        radial-gradient(1100px 720px at 85% 12%, rgba(255, 255, 255, 0.14), transparent 60%),
-        radial-gradient(1200px 900px at 50% -5%, rgba(196, 44, 44, 0.4), transparent 58%),
-        linear-gradient(180deg, #741919, #8f1f1f 40%, #5c0f0f);
+      background: radial-gradient(900px 600px at 12% 8%, rgba(129, 196, 149, 0.2), transparent 55%),
+        radial-gradient(1100px 720px at 85% 12%, rgba(255, 255, 255, 0.12), transparent 60%),
+        radial-gradient(1200px 900px at 50% -5%, rgba(47, 133, 90, 0.32), transparent 58%),
+        linear-gradient(180deg, #2f855a, #276749 40%, #1f4f35);
       position: relative;
       overflow-x:hidden;
     }
@@ -461,9 +461,9 @@ HTML = """<!doctype html>
       inset: 0;
       background-image:
         radial-gradient(18px 18px at 10% 14%, rgba(255,255,255,.35), transparent 62%),
-        radial-gradient(22px 22px at 88% 8%, rgba(255,225,200,.32), transparent 60%),
-        radial-gradient(16px 16px at 16% 85%, rgba(221, 186, 84, .25), transparent 70%),
-        radial-gradient(14px 14px at 82% 80%, rgba(255,255,255,.32), transparent 68%);
+        radial-gradient(22px 22px at 88% 8%, rgba(189, 224, 200, .28), transparent 60%),
+        radial-gradient(16px 16px at 16% 85%, rgba(74, 159, 109, .28), transparent 70%),
+        radial-gradient(14px 14px at 82% 80%, rgba(200, 230, 210,.30), transparent 68%);
       pointer-events: none;
       mix-blend-mode: screen;
       opacity: .8;
