@@ -108,10 +108,70 @@ def _edf_is_large_scale(row: Dict) -> bool:
     return bool(re.search(r"\blarge[-\s]?scale\b", text_blob, flags=re.IGNORECASE))
 
 
+def _funding_percentage(row: Dict, doc_type: str) -> Optional[str]:
+    """
+    Return funding percentage as a string with '%' or None when not available.
+    Rules from the functional spec:
+    - Horizon: map from action_type; IA defaults to 70% unless "non-profit" is explicitly found.
+    - EDF: only surface percentages explicitly present in the text (parser may provide numeric value).
+    """
+    if doc_type == DOC_EDF:
+        val = row.get("funding_percentage")
+        if isinstance(val, (int, float)) and val >= 0:
+            return f"{val:g}%"
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+        return None
+
+    action = (row.get("action_type") or "").strip().upper()
+    if not action:
+        return None
+
+    if action in {"RIA", "CSA"}:
+        return "100%"
+    if action == "IA":
+        body_text = " ".join(
+            [
+                str(row.get("topic_body") or ""),
+                str(row.get("topic_description") or ""),
+                str(row.get("topic_description_verbatim") or ""),
+            ]
+        ).lower()
+        if "non-profit" in body_text or "non profit" in body_text:
+            return "100%"
+        return "70%"
+
+    # PCP / PPI depend on the call text; we only surface if a value is explicitly available
+    explicit = row.get("funding_percentage")
+    if isinstance(explicit, (int, float)):
+        return f"{explicit:g}%"
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip()
+    return None
+
+
+def _row_call_type(row: Dict, doc_type: str) -> Optional[str]:
+    if doc_type == DOC_EDF:
+        return row.get("call_type") or row.get("type_of_action") or row.get("call_family_display")
+    return row.get("action_type")
+
+
+def _row_min_budget(row: Dict) -> Optional[float]:
+    for key in (
+        "budget_per_project_min_eur_m",
+        "budget_per_project_m",
+        "indicative_budget_eur_m",
+    ):
+        v = row.get(key)
+        if isinstance(v, (int, float)):
+            return float(v)
+    return None
+
+
 def _process_pdf_keys(
     pdf_keys: List[str],
     context=None,
-    action_types=None,
+    call_types=None,
     min_budget_m=None,
     opening_filter: str = "",
     deadline_filter: str = "",
@@ -170,6 +230,7 @@ def _process_pdf_keys(
         step_filter = _coerce_bool(edf_filters.get("step"))
 
         # Ensure derived call_family exists
+        call_types_meta = {}
         for r in all_rows:
             r["call_family"] = r.get("call_family") if r.get("call_family") in EDF_CALL_FAMILY_LABELS else _edf_call_family_from_id(r.get("call_id"))
             is_large_scale = r.get("is_large_scale")
@@ -178,6 +239,11 @@ def _process_pdf_keys(
             r["is_large_scale"] = bool(is_large_scale or _edf_is_large_scale(r))
             r["call_family_display"] = _edf_call_family_label(r.get("call_family")) or r.get("call_family")
             r["scale"] = _edf_scale_label(r["is_large_scale"])
+            r["budget_per_project_min_eur_m"] = r.get("budget_per_project_min_eur_m") or r.get("indicative_budget_eur_m")
+            r["call_type"] = r.get("type_of_action") or r.get("call_family_display")
+            r["funding_percentage"] = _funding_percentage(r, DOC_EDF)
+            if r["call_type"] and r["call_type"] not in call_types_meta:
+                call_types_meta[r["call_type"]] = r["funding_percentage"]
 
         rows = filter_edf_rows(
             all_rows,
@@ -185,6 +251,16 @@ def _process_pdf_keys(
             budget_min_m=budget_min,
             budget_max_m=budget_max,
             step=step_filter,
+        )
+
+        # Apply shared filters (call types, budget slider, opening/deadline)
+        rows = filter_rows(
+            rows,
+            call_types=call_types,
+            min_budget_m=min_budget_m,
+            opening_filter=opening_filter,
+            deadline_filter=deadline_filter,
+            doc_type=detected_type,
         )
 
         write_xlsx(rows, local_xlsx, DOC_EDF)
@@ -197,21 +273,21 @@ def _process_pdf_keys(
 
         display_rows = []
         for r in rows:
+            call_type = _row_call_type(r, DOC_EDF)
+            funding = _funding_percentage(r, DOC_EDF)
+            if call_type and call_type not in call_types_meta:
+                call_types_meta[call_type] = funding
+
             display_rows.append(
                 {
-                    "call_id": r.get("call_id"),
-                    "call_family": r.get("call_family"),
-                    "call_family_display": r.get("call_family_display"),
                     "topic_id": r.get("topic_id"),
+                    "topic_url": _topic_url(r.get("topic_id")),
                     "topic_title": r.get("topic_title"),
-                    "type_of_action": r.get("type_of_action"),
-                    "indicative_budget_eur_m": r.get("indicative_budget_eur_m"),
-                    "call_indicative_budget_eur_m": r.get("call_indicative_budget_eur_m"),
-                    "number_of_actions": r.get("number_of_actions"),
-                    "step": r.get("step"),
-                    "is_large_scale": r.get("is_large_scale"),
-                    "scale": r.get("scale"),
-                    "topic_description_verbatim": r.get("topic_description_verbatim") or "",
+                    "budget_per_project_min_eur_m": r.get("budget_per_project_min_eur_m"),
+                    "opening_date": r.get("opening_date"),
+                    "deadline_date": r.get("deadline_date"),
+                    "call_type": call_type,
+                    "funding_percentage": funding,
                 }
             )
 
@@ -221,20 +297,27 @@ def _process_pdf_keys(
             "rows": display_rows,
             "rows_count": len(rows),
             "doc_type": detected_type,
+            "call_types": [{"name": k, "funding_percentage": v} for k, v in call_types_meta.items()],
         }
 
     # Horizon flow
+    call_types_meta = {}
     for r in all_rows:
         derived_budget = _compute_budget_per_project_m(r)
         r["budget_per_project_min_eur_m"] = derived_budget
         r["budget_per_project_m"] = derived_budget
+        r["funding_percentage"] = _funding_percentage(r, DOC_HORIZON)
+        call_type = _row_call_type(r, DOC_HORIZON)
+        if call_type and call_type not in call_types_meta:
+            call_types_meta[call_type] = r["funding_percentage"]
 
     rows = filter_rows(
         all_rows,
-        action_types=action_types,
+        call_types=call_types,
         min_budget_m=min_budget_m,
         opening_filter=opening_filter,
         deadline_filter=deadline_filter,
+        doc_type=detected_type,
     )
 
     # --- OpenAI descriptions (optional) ---
@@ -292,18 +375,21 @@ def _process_pdf_keys(
 
     display_rows = []
     for r in rows:
+        call_type = _row_call_type(r, DOC_HORIZON)
+        funding = _funding_percentage(r, DOC_HORIZON)
+        if call_type and call_type not in call_types_meta:
+            call_types_meta[call_type] = funding
+
         display_rows.append(
             {
                 "topic_id": r.get("topic_id"),
                 "topic_url": _topic_url(r.get("topic_id")),
                 "topic_title": r.get("topic_title") or "",
-                "action_type": r.get("action_type"),
-                "trl": r.get("trl"),
                 "budget_per_project_min_eur_m": r.get("budget_per_project_min_eur_m"),
                 "opening_date": r.get("opening_date"),
                 "deadline_date": r.get("deadline_date"),
-                "call_id": r.get("call_id"),
-                "page": r.get("page"),
+                "call_type": call_type,
+                "funding_percentage": funding,
             }
         )
 
@@ -313,6 +399,7 @@ def _process_pdf_keys(
         "rows": display_rows,
         "rows_count": len(rows),
         "doc_type": detected_type,
+        "call_types": [{"name": k, "funding_percentage": v} for k, v in call_types_meta.items()],
     }
 def extract_text(pdf_path: str) -> str:
     """
@@ -374,6 +461,7 @@ def _write_horizon_xlsx(rows, xlsx_path: str):
         "topic_title",
         "topic_description",
         "action_type",
+        "funding_percentage",
         "trl",
         "budget_eur_m",
         "budget_per_project_min_eur_m",
@@ -411,6 +499,8 @@ def _write_edf_xlsx(rows, xlsx_path: str):
         "topic_id",
         "topic_title",
         "type_of_action",
+        "funding_percentage",
+        "budget_per_project_min_eur_m",
         "indicative_budget_eur_m",
         "call_indicative_budget_eur_m",
         "number_of_actions",
@@ -604,28 +694,27 @@ def _date_filter_match(value: str, filter_value: str) -> bool:
 
 def filter_rows(
     rows,
-    action_types=None,
+    call_types=None,
     min_budget_m: float = None,
     opening_filter: str = "",
     deadline_filter: str = "",
+    doc_type: str = DOC_HORIZON,
 ):
     allowed = None
-    if action_types:
-        allowed = {str(t).upper() for t in action_types if str(t).strip()}
+    if call_types:
+        allowed = {str(t).strip().lower() for t in call_types if str(t).strip()}
         if not allowed:
             allowed = None
 
     filtered = []
     for r in rows:
         if allowed is not None:
-            cur = (r.get("action_type") or "").upper()
+            cur = (_row_call_type(r, doc_type) or "").strip().lower()
             if cur not in allowed:
                 continue
 
         if min_budget_m is not None:
-            budget_val = r.get("budget_per_project_min_eur_m")
-            if not isinstance(budget_val, (int, float)):
-                budget_val = _compute_budget_per_project_m(r)
+            budget_val = _row_min_budget(r)
             if budget_val is None:
                 budget_val = 0.0
             if budget_val < min_budget_m:
@@ -810,7 +899,7 @@ def handler(event, context):
             pdf_keys = event.get("pdf_keys") or []
             if not pdf_keys and event.get("pdf_key"):
                 pdf_keys = [event["pdf_key"]]
-            action_types = event.get("action_types")
+            call_types = event.get("call_types") or event.get("action_types")
             min_budget_m = _coerce_float(event.get("min_budget_m"))
             if min_budget_m is None:
                 min_budget_m = DEFAULT_MIN_BUDGET_M
@@ -822,7 +911,7 @@ def handler(event, context):
             return _process_pdf_keys(
                 pdf_keys,
                 context=context,
-                action_types=action_types,
+                call_types=call_types,
                 min_budget_m=min_budget_m,
                 opening_filter=opening_filter,
                 deadline_filter=deadline_filter,
@@ -872,7 +961,7 @@ def handler(event, context):
             pdf_keys = data.get("pdf_keys") or []
             if not pdf_keys and data.get("pdf_key"):
                 pdf_keys = [data["pdf_key"]]
-            action_types = data.get("action_types")
+            call_types = data.get("call_types") or data.get("action_types")
             min_budget_m = _coerce_float(data.get("min_budget_m"))
             if min_budget_m is None:
                 min_budget_m = DEFAULT_MIN_BUDGET_M
@@ -884,7 +973,7 @@ def handler(event, context):
             result = _process_pdf_keys(
                 pdf_keys,
                 context=context,
-                action_types=action_types,
+                call_types=call_types,
                 min_budget_m=min_budget_m,
                 opening_filter=opening_filter,
                 deadline_filter=deadline_filter,

@@ -249,11 +249,11 @@
       </div>
       <p class="hint">The backend checks PDF text (“Horizon Europe”, “Work Programme”, “EDF-2026-…”) to prevent mismatches.</p>
 
-      <div class="filters" data-panel="horizon">
+      <div class="filters" id="filters">
         <div>
           <div class="filterlabel">Call types</div>
           <div class="textinput clickable" id="typeSummary">All types</div>
-          <div class="hint">Tap below to edit</div>
+          <div class="hint">Multi-select with funding percentage. Same UI for Horizon and EDF.</div>
           <div class="dropdown" id="typeMenu" style="margin-top:6px; display:none;">
             <div class="actions" style="margin-bottom:6px;">
               <button class="btn" type="button" id="typeAll">Select all</button>
@@ -267,45 +267,16 @@
           <div class="sliderwrap">
             <div class="bubble" id="budgetBubble">0 M€</div>
             <input type="range" id="budget" min="0" max="15" step="1" value="0" aria-label="Minimum budget per project in million euros"/>
-            <div class="hint">Supports 15+ when moved to the end.</div>
+            <div class="hint">Range 0 → 15+. At 15 it selects only ≥ 15 M€.</div>
           </div>
         </div>
         <div>
           <div class="filterlabel">Opening date</div>
-          <input class="textinput" id="openFilter" type="text" placeholder="2026 or 2026-Q1 or 2026-05"/>
+          <input class="textinput" id="openFilter" type="text" placeholder="YYYY or YYYY-Qx or YYYY-MM"/>
         </div>
         <div>
           <div class="filterlabel">Deadline date</div>
-          <input class="textinput" id="deadlineFilter" type="text" placeholder="2027 or 2027-11-15"/>
-        </div>
-      </div>
-
-      <div class="filters" data-panel="edf" style="display:none;">
-        <div>
-          <div class="filterlabel">Call family</div>
-          <select id="edfFamily">
-            <option value="">Any</option>
-            <option value="RA">RA — Research Actions</option>
-            <option value="DA">DA — Development Actions</option>
-            <option value="CSA">CSA — Coordination & Support Actions</option>
-          </select>
-          <div class="hint">Matches the call prefix (e.g., EDF-2024-RA-…)</div>
-        </div>
-        <div>
-          <div class="filterlabel">Indicative budget min (M€)</div>
-          <input class="textinput" id="edfBudgetMin" type="number" min="0" step="0.1" placeholder="e.g. 5" />
-        </div>
-        <div>
-          <div class="filterlabel">Indicative budget max (M€)</div>
-          <input class="textinput" id="edfBudgetMax" type="number" min="0" step="0.1" placeholder="e.g. 20" />
-        </div>
-        <div>
-          <div class="filterlabel">STEP</div>
-          <select id="edfStep">
-            <option value="">Any</option>
-            <option value="yes">Yes</option>
-            <option value="no">No</option>
-          </select>
+          <input class="textinput" id="deadlineFilter" type="text" placeholder="YYYY or YYYY-MM-DD"/>
         </div>
       </div>
 
@@ -349,30 +320,37 @@
 
     <div class="card results active" id="results-horizon">
       <h3>Horizon table</h3>
-      <p class="hint">Mobile-friendly cards, Topic ID links to the Funding &amp; Tenders portal. Action type shown next to the topic ID.</p>
+      <p class="hint">Preview columns: Topic ID (clickable), Min Budget per Project (M€), Opening Date, Deadline Date. Funding percentage is shown next to the call type.</p>
       <div class="table" id="table-horizon"></div>
     </div>
 
     <div class="card results" id="results-edf">
       <h3>EDF table</h3>
-      <p class="hint">Topic IDs stay as text (no links). Fields: call, topic, action, indicative budget, number of actions, STEP.</p>
+      <p class="hint">Same UI and columns as Horizon. Topic IDs link to Funding &amp; Tenders. Funding % is displayed only when explicitly stated in the PDF.</p>
       <div class="table" id="table-edf"></div>
     </div>
   </div>
 
   <script>
     const $ = (id) => document.getElementById(id);
-    const ACTION_TYPES = ["RIA","IA","CSA","PCP","PPI","COFUND","ERC","MSCA","EIC-PATHFINDER","EIC-TRANSITION","EIC-ACCELERATOR"];
-    const EDF_CALL_FAMILY_LABELS = {
-      RA: "RA — Research Actions",
-      DA: "DA — Development Actions",
-      CSA: "CSA — Coordination & Support Actions",
-    };
+    const HORIZON_CALL_TYPES = [
+      { name: "RIA", funding: "100%" },
+      { name: "IA", funding: "70%" },
+      { name: "CSA", funding: "100%" },
+      { name: "PCP", funding: "N/A" },
+      { name: "PPI", funding: "N/A" },
+      { name: "COFUND", funding: "N/A" },
+      { name: "ERC", funding: "N/A" },
+      { name: "MSCA", funding: "N/A" },
+      { name: "EIC-PATHFINDER", funding: "N/A" },
+      { name: "EIC-TRANSITION", funding: "N/A" },
+      { name: "EIC-ACCELERATOR", funding: "N/A" },
+    ];
     const state = {
       activeTab: "horizon",
       tabs: {
-        horizon: { files: [], selectedTypes: new Set(ACTION_TYPES), minBudget: 0, openingFilter: "", deadlineFilter: "" },
-        edf: { files: [], callFamily: "", budgetMin: "", budgetMax: "", step: "" },
+        horizon: { files: [], callTypes: [...HORIZON_CALL_TYPES], selectedTypes: new Set(HORIZON_CALL_TYPES.map(t => t.name)), minBudget: 0, openingFilter: "", deadlineFilter: "" },
+        edf: { files: [], callTypes: [], selectedTypes: new Set(), minBudget: 0, openingFilter: "", deadlineFilter: "" },
       },
       results: {
         horizon: { rows: [], downloadUrl: null, rowsCount: 0 },
@@ -397,20 +375,37 @@
       return `${formatted} M€`;
     }
 
-    function updateTypeSummary(){
-      const sel = state.tabs.horizon.selectedTypes;
+    function formatCallTypeLabel(opt){
+      const pct = opt.funding && String(opt.funding).trim() ? opt.funding : "N/A";
+      return `${opt.name} — ${pct}`;
+    }
+
+    function updateTypeSummary(tab = state.activeTab){
+      const sel = state.tabs[tab].selectedTypes;
+      const opts = state.tabs[tab].callTypes;
       const size = sel.size;
       let summary = "All types";
-      if(size === ACTION_TYPES.length){ summary = "All types"; }
-      else if(size === 1){ summary = Array.from(sel)[0]; }
-      else if(size > 1){ summary = `${Array.from(sel)[0]} +${size-1}`; }
+      if(size === opts.length || size === 0){ summary = "All types"; }
+      else if(size === 1){
+        const first = opts.find(o => sel.has(o.name));
+        summary = first ? formatCallTypeLabel(first) : "All types";
+      } else if(size > 1){
+        const first = opts.find(o => sel.has(o.name));
+        summary = first ? `${formatCallTypeLabel(first)} +${size-1}` : "All types";
+      }
       $("typeSummary").textContent = summary;
     }
 
-    function renderTypeList(){
+    function renderTypeList(tab = state.activeTab){
       const box = $("typeList");
       box.innerHTML = "";
-      ACTION_TYPES.forEach(t => {
+      const opts = state.tabs[tab].callTypes;
+      if(!opts.length){
+        box.textContent = "Call types will appear after parsing the PDF.";
+        updateTypeSummary(tab);
+        return;
+      }
+      opts.forEach(opt => {
         const lbl = document.createElement("label");
         lbl.style.display = "inline-flex";
         lbl.style.alignItems = "center";
@@ -418,22 +413,22 @@
         lbl.style.marginRight = "10px";
         lbl.style.marginBottom = "6px";
         const input = document.createElement("input");
-        input.type = "checkbox"; input.value = t; input.checked = state.tabs.horizon.selectedTypes.has(t);
+        input.type = "checkbox"; input.value = opt.name; input.checked = state.tabs[tab].selectedTypes.has(opt.name) || state.tabs[tab].selectedTypes.size === 0;
         input.onchange = () => {
-          if(input.checked) state.tabs.horizon.selectedTypes.add(t); else state.tabs.horizon.selectedTypes.delete(t);
-          updateTypeSummary();
+          if(input.checked) state.tabs[tab].selectedTypes.add(opt.name); else state.tabs[tab].selectedTypes.delete(opt.name);
+          updateTypeSummary(tab);
         };
-        const span = document.createElement("span"); span.textContent = t;
+        const span = document.createElement("span"); span.textContent = formatCallTypeLabel(opt);
         lbl.appendChild(input); lbl.appendChild(span); box.appendChild(lbl);
       });
-      updateTypeSummary();
+      updateTypeSummary(tab);
     }
 
-    function setBudget(val){
+    function setBudget(val, tab = state.activeTab){
       const num = Math.min(15, Math.max(0, Math.round(Number(val) || 0)));
-      state.tabs.horizon.minBudget = num;
+      state.tabs[tab].minBudget = num;
       $("budget").value = String(num);
-      $("budgetBubble").textContent = formatBudget(num);
+      $("budgetBubble").textContent = num >= 15 ? "15+ M€" : `${num} M€`;
     }
 
     function setStatus(main, sub, isError=false){
@@ -465,10 +460,6 @@
       $("budget").disabled = busy;
       $("openFilter").disabled = busy;
       $("deadlineFilter").disabled = busy;
-      $("edfFamily").disabled = busy;
-      $("edfBudgetMin").disabled = busy;
-      $("edfBudgetMax").disabled = busy;
-      $("edfStep").disabled = busy;
     }
 
     function setFiles(tab, files){
@@ -503,13 +494,16 @@
       if(state.activeTab === tab) return;
       state.activeTab = tab;
       document.querySelectorAll(".tab").forEach(btn => btn.classList.toggle("active", btn.dataset.tab === tab));
-      document.querySelector('[data-panel=\"horizon\"]').style.display = tab === "horizon" ? "grid" : "none";
-      document.querySelector('[data-panel=\"edf\"]').style.display = tab === "edf" ? "grid" : "none";
       $("results-horizon").classList.toggle("active", tab === "horizon");
       $("results-edf").classList.toggle("active", tab === "edf");
       $("fileInput").multiple = tab === "horizon";
-      setFiles(tab, state.tabs[tab].files);
+      $("openFilter").value = state.tabs[tab].openingFilter || "";
+      $("deadlineFilter").value = state.tabs[tab].deadlineFilter || "";
+      setBudget(state.tabs[tab].minBudget, tab);
+      renderTypeList(tab);
+      renderFileList();
       renderResults(tab);
+      setBusy(state.busy);
     }
 
     function isPdfFile(f){
@@ -565,20 +559,25 @@
     $("clear").onclick = () => { setFiles(state.activeTab, []); $("fileInput").value = ""; };
 
     $("typeSummary").onclick = () => { $("typeMenu").style.display = $("typeMenu").style.display === "block" ? "none" : "block"; };
-    $("typeAll").onclick = () => { state.tabs.horizon.selectedTypes = new Set(ACTION_TYPES); updateTypeSummary(); };
-    $("typeNone").onclick = () => { state.tabs.horizon.selectedTypes = new Set(); updateTypeSummary(); };
+    $("typeAll").onclick = () => {
+      const tab = state.activeTab;
+      const names = state.tabs[tab].callTypes.map(o => o.name);
+      state.tabs[tab].selectedTypes = new Set(names);
+      renderTypeList(tab);
+    };
+    $("typeNone").onclick = () => {
+      const tab = state.activeTab;
+      state.tabs[tab].selectedTypes = new Set();
+      renderTypeList(tab);
+    };
     document.addEventListener("click", (e) => {
       if(e.target === $("typeSummary") || $("typeMenu").contains(e.target)) return;
       $("typeMenu").style.display = "none";
     });
 
-    $("budget").addEventListener("input", (e) => setBudget(e.target.value));
-    $("openFilter").addEventListener("input", (e) => state.tabs.horizon.openingFilter = (e.target.value || "").trim());
-    $("deadlineFilter").addEventListener("input", (e) => state.tabs.horizon.deadlineFilter = (e.target.value || "").trim());
-    $("edfFamily").addEventListener("change", (e) => state.tabs.edf.callFamily = (e.target.value || "").trim());
-    $("edfBudgetMin").addEventListener("input", (e) => state.tabs.edf.budgetMin = e.target.value);
-    $("edfBudgetMax").addEventListener("input", (e) => state.tabs.edf.budgetMax = e.target.value);
-    $("edfStep").addEventListener("change", (e) => state.tabs.edf.step = e.target.value);
+    $("budget").addEventListener("input", (e) => setBudget(e.target.value, state.activeTab));
+    $("openFilter").addEventListener("input", (e) => state.tabs[state.activeTab].openingFilter = (e.target.value || "").trim());
+    $("deadlineFilter").addEventListener("input", (e) => state.tabs[state.activeTab].deadlineFilter = (e.target.value || "").trim());
 
     $("tab-horizon").onclick = () => switchTab("horizon");
     $("tab-edf").onclick = () => switchTab("edf");
@@ -588,39 +587,6 @@
       if(dl) window.location = dl;
     };
 
-    function formatStepValue(v){
-      if(v === true) return "Yes";
-      if(v === false) return "No";
-      return "—";
-    }
-
-    function formatCallFamilyDisplay(callFamily, callFamilyDisplay){
-      const label = callFamilyDisplay || EDF_CALL_FAMILY_LABELS[callFamily];
-      if(label) return label;
-      if(callFamily) return callFamily;
-      return "—";
-    }
-
-    function formatScale(isLargeScale, scale){
-      if(typeof scale === "string" && scale.trim()) return scale;
-      if(isLargeScale === true) return "Large-scale";
-      if(isLargeScale === false) return "Standard";
-      return "—";
-    }
-
-    function appendSummaryLabel(el, previewText){
-      const label = document.createElement("span");
-      label.textContent = "Topic description (verbatim)";
-      el.appendChild(label);
-      const clean = (previewText || "").replace(/\s+/g, " ").trim();
-      if(!clean) return;
-      const snippet = clean.length > 140 ? `${clean.slice(0, 140).trim()}…` : clean;
-      const preview = document.createElement("span");
-      preview.className = "desc-preview";
-      preview.textContent = `– ${snippet}`;
-      el.appendChild(preview);
-    }
-
     function renderResults(tab){
       const res = state.results[tab];
       $("rows").textContent = String(res.rowsCount || res.rows.length || 0);
@@ -629,124 +595,58 @@
       dlBtn.style.display = res.downloadUrl ? "inline-flex" : "none";
       dlBtn.classList.toggle("success", Boolean(res.downloadUrl));
 
-      if(tab === "horizon"){
-        const box = $("table-horizon");
-        box.innerHTML = "";
-        res.rows.forEach((r) => {
-          const card = document.createElement("div");
-          card.className = "row-card";
-          const id = document.createElement("div");
-          id.className = "idline";
-          if(r.topic_url){
-            const a = document.createElement("a");
-            a.href = r.topic_url;
-            a.target = "_blank"; a.rel = "noreferrer";
-            a.textContent = r.topic_id || "—";
-            a.className = "link";
-            id.appendChild(a);
-          } else {
-            const span = document.createElement("span");
-            span.textContent = r.topic_id || "—";
-            id.appendChild(span);
-          }
-          const pill = document.createElement("span");
-          pill.className = "pill"; pill.textContent = r.action_type || "—";
-          id.appendChild(pill);
-          card.appendChild(id);
-          const callLine = document.createElement("div");
-          callLine.className = "callline";
-          const callLabel = document.createElement("span"); callLabel.className = "label"; callLabel.textContent = "Call";
-          const callPill = document.createElement("span"); callPill.className = "pill callpill"; callPill.textContent = r.call_id || "—";
-          callLine.appendChild(callLabel); callLine.appendChild(callPill); card.appendChild(callLine);
-          const title = document.createElement("div");
-          title.className = "subtitle"; title.textContent = r.topic_title || "—";
-          card.appendChild(title);
+      const box = tab === "horizon" ? $("table-horizon") : $("table-edf");
+      box.innerHTML = "";
+      res.rows.forEach((r) => {
+        const card = document.createElement("div");
+        card.className = "row-card";
+        const id = document.createElement("div");
+        id.className = "idline";
+        if(r.topic_url){
+          const a = document.createElement("a");
+          a.href = r.topic_url;
+          a.target = "_blank"; a.rel = "noreferrer";
+          a.textContent = r.topic_id || "—";
+          a.className = "link";
+          id.appendChild(a);
+        } else {
+          const span = document.createElement("span");
+          span.textContent = r.topic_id || "—";
+          id.appendChild(span);
+        }
+        const callType = r.call_type || "—";
+        const callPill = document.createElement("span");
+        callPill.className = "pill callpill";
+        callPill.textContent = callType;
+        id.appendChild(callPill);
+        const funding = (r.funding_percentage && String(r.funding_percentage).trim()) ? String(r.funding_percentage).trim() : "N/A";
+        const fundPill = document.createElement("span");
+        fundPill.className = "pill";
+        fundPill.textContent = `Funding: ${funding}`;
+        id.appendChild(fundPill);
+        card.appendChild(id);
 
-          const grid = document.createElement("div");
-          grid.className = "row-grid";
-          const fields = [
-            ["Call ID", r.call_id || "—"],
-            ["TRL", r.trl || "—"],
-            ["Budget (M€)", formatBudget(r.budget_per_project_min_eur_m)],
-            ["Opening date", r.opening_date || "—"],
-            ["Deadline date", r.deadline_date || "—"],
-            ["Page", r.page || "—"],
-          ];
-          fields.forEach(([label, value]) => {
-            const c = document.createElement("div");
-            c.className = "cell";
-            const l = document.createElement("span"); l.className = "label"; l.textContent = label;
-            const v = document.createElement("span"); v.textContent = value ?? "—";
-            c.appendChild(l); c.appendChild(v); grid.appendChild(c);
-          });
-          card.appendChild(grid);
-          const accordion = document.createElement("details");
-          accordion.className = "accordion";
-          const summary = document.createElement("summary"); summary.className = "desc-summary"; appendSummaryLabel(summary, "");
-          const body = document.createElement("div"); body.className = "accordion-body";
-          const raw = document.createElement("div"); raw.className = "rawtext";
-          raw.textContent = [
-            `Call: ${r.call_id || "—"}`,
-            `Topic ID: ${r.topic_id || "—"}`,
-            `Titolo: ${r.topic_title || "—"}`,
-            `Azione: ${r.action_type || "—"}`
-          ].join("\n");
-          body.appendChild(raw);
-          accordion.appendChild(summary); accordion.appendChild(body);
-          card.appendChild(accordion);
-          box.appendChild(card);
-        });
-      } else {
-        const box = $("table-edf");
-        box.innerHTML = "";
-        res.rows.forEach((r) => {
-          const card = document.createElement("div");
-          card.className = "row-card";
-          const id = document.createElement("div");
-          id.className = "idline";
-          const tid = document.createElement("span"); tid.textContent = r.topic_id || "—";
-          id.appendChild(tid);
-          card.appendChild(id);
-          const callLine = document.createElement("div");
-          callLine.className = "callline";
-          const callLabel = document.createElement("span"); callLabel.className = "label"; callLabel.textContent = "Call";
-          const callPill = document.createElement("span"); callPill.className = "pill callpill"; callPill.textContent = r.call_id || "—";
-          callLine.appendChild(callLabel); callLine.appendChild(callPill); card.appendChild(callLine);
-          const title = document.createElement("div"); title.className = "subtitle"; title.textContent = r.topic_title || "—";
-          card.appendChild(title);
+        const title = document.createElement("div");
+        title.className = "subtitle"; title.textContent = r.topic_title || "—";
+        card.appendChild(title);
 
-          const grid = document.createElement("div"); grid.className = "row-grid";
-          const callFamilyDisplay = formatCallFamilyDisplay(r.call_family, r.call_family_display);
-          const fields = [
-            ["Call ID", r.call_id || "—"],
-            ["Call family", callFamilyDisplay],
-            ["Scale", formatScale(r.is_large_scale, r.scale)],
-            ["Type of action", r.type_of_action || "—"],
-            ["Indicative budget (M€)", formatBudget(r.indicative_budget_eur_m)],
-            ["Call indicative budget (M€)", formatBudget(r.call_indicative_budget_eur_m)],
-            ["Number of actions", r.number_of_actions ?? "—"],
-            ["STEP", formatStepValue(r.step)],
-          ];
-          fields.forEach(([label, value]) => {
-            const c = document.createElement("div"); c.className = "cell";
-            const l = document.createElement("span"); l.className = "label"; l.textContent = label;
-            const v = document.createElement("span"); v.textContent = value ?? "—";
-            c.appendChild(l); c.appendChild(v); grid.appendChild(c);
-          });
-          card.appendChild(grid);
-          const accordion = document.createElement("details");
-          accordion.className = "accordion";
-          const summary = document.createElement("summary"); summary.className = "desc-summary"; appendSummaryLabel(summary, r.topic_description_verbatim);
-          const body = document.createElement("div"); body.className = "accordion-body";
-          const desc = document.createElement("div"); desc.className = "desc-body";
-          const descText = (r.topic_description_verbatim || "").trim();
-          desc.textContent = descText || "—";
-          body.appendChild(desc);
-          accordion.appendChild(summary); accordion.appendChild(body);
-          card.appendChild(accordion);
-          box.appendChild(card);
+        const grid = document.createElement("div");
+        grid.className = "row-grid";
+        const fields = [
+          ["Min. budget per project (M€)", formatBudget(r.budget_per_project_min_eur_m)],
+          ["Opening date", r.opening_date || "—"],
+          ["Deadline date", r.deadline_date || "—"],
+        ];
+        fields.forEach(([label, value]) => {
+          const c = document.createElement("div");
+          c.className = "cell";
+          const l = document.createElement("span"); l.className = "label"; l.textContent = label;
+          const v = document.createElement("span"); v.textContent = value ?? "—";
+          c.appendChild(l); c.appendChild(v); grid.appendChild(c);
         });
-      }
+        card.appendChild(grid);
+        box.appendChild(card);
+      });
     }
 
     function resetResult(tab){
@@ -802,26 +702,28 @@
           pdf_keys: uploads.map(u => u.pdf_key),
           expected_type: tab,
           original_names: files.map(f => f.name || ""),
+          call_types: Array.from(state.tabs[tab].selectedTypes),
+          min_budget_m: state.tabs[tab].minBudget,
+          opening_filter: state.tabs[tab].openingFilter,
+          deadline_filter: state.tabs[tab].deadlineFilter,
         };
-        if(tab === "horizon"){
-          payload.action_types = Array.from(state.tabs.horizon.selectedTypes);
-          payload.min_budget_m = state.tabs.horizon.minBudget;
-          payload.opening_filter = state.tabs.horizon.openingFilter;
-          payload.deadline_filter = state.tabs.horizon.deadlineFilter;
-        } else {
-          payload.edf_filters = {
-            call_family: state.tabs.edf.callFamily,
-            budget_min_m: state.tabs.edf.budgetMin,
-            budget_max_m: state.tabs.edf.budgetMax,
-            step: state.tabs.edf.step,
-          };
-        }
 
         const proc = await fetchJson("/process", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        if(Array.isArray(proc.call_types)){
+          const options = proc.call_types
+            .filter(ct => ct?.name)
+            .map(ct => ({ name: ct.name, funding: ct.funding_percentage || "N/A" }));
+          const previous = new Set(state.tabs[tab].selectedTypes);
+          state.tabs[tab].callTypes = options;
+          const allowedNames = options.map(o => o.name);
+          const kept = new Set([...previous].filter(n => allowedNames.includes(n)));
+          state.tabs[tab].selectedTypes = kept.size ? kept : new Set(allowedNames);
+          renderTypeList(tab);
+        }
 
         // Download link
         setSteps(3, true);
