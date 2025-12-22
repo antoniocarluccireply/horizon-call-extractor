@@ -236,7 +236,7 @@ def _process_pdf_keys(
         s3.download_file(BUCKET, key, local_pdf)
 
         text = extract_text(local_pdf)
-        doc_type = detect_document_family(text)
+        doc_type = detect_document_family(text, expected_type=expected_type)
         file_label = original_names[idx] if idx < len(original_names) else key
 
         if doc_type == "unknown":
@@ -482,21 +482,42 @@ def _matches_prefix(value: str, prefix: str) -> bool:
     return str(value).strip().lower().startswith(pref.lower())
 
 
-def detect_document_family(text: str) -> str:
+def detect_document_family(text: str, expected_type: Optional[str] = None) -> str:
     low = (text or "").lower()
-    horizon_signal = (
-        "horizon europe" in low
-        or "work programme" in low
-        or re.search(r"\bhorizon-[a-z0-9]+-\d{4}-", text, flags=re.IGNORECASE)
-    )
-    edf_matches = re.findall(r"\bedf-\d{4}-[a-z]{2,}", text, flags=re.IGNORECASE)
-    edf_keyword = "european defence fund" in low
-    if horizon_signal:
-        return DOC_HORIZON
-    strong_edf = (edf_keyword and bool(edf_matches)) or len(edf_matches) >= 3
-    if strong_edf:
-        return DOC_EDF
-    return "unknown"
+    expected = (expected_type or "").strip().lower()
+
+    edf_ids = re.findall(r"\bedf-\d{4}-[a-z]{2,}", text, flags=re.IGNORECASE)
+    horizon_ids = re.findall(r"\bhorizon-[a-z0-9]+-\d{4}-", text, flags=re.IGNORECASE)
+
+    edf_score = 0
+    horizon_score = 0
+
+    if "european defence fund" in low:
+        edf_score += 6
+    if len(edf_ids) >= 2:
+        edf_score += 4
+    elif len(edf_ids) == 1:
+        edf_score += 2
+
+    if "horizon europe" in low:
+        horizon_score += 6
+    if "work programme" in low:
+        horizon_score += 3
+    if len(horizon_ids) >= 1:
+        horizon_score += 4 + max(0, len(horizon_ids) - 1)
+
+    if edf_score == 0 and horizon_score == 0:
+        return "unknown"
+
+    if edf_score == horizon_score:
+        if expected in {DOC_HORIZON, DOC_EDF}:
+            return expected
+        return "unknown"
+
+    if abs(edf_score - horizon_score) <= 1 and expected in {DOC_HORIZON, DOC_EDF}:
+        return expected
+
+    return DOC_EDF if edf_score > horizon_score else DOC_HORIZON
 
 
 def _write_horizon_xlsx(rows, xlsx_path: str):

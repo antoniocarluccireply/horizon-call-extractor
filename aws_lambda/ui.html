@@ -319,6 +319,7 @@
           </div>
           <div class="actions">
             <button class="btn" id="clear" disabled>Remove</button>
+            <button class="btn" id="cancel" style="display:none;">Cancel</button>
             <button class="btn primary" id="go" disabled>Generate Excel</button>
           </div>
         </div>
@@ -418,6 +419,7 @@
         edf: { rows: [], downloadUrl: null, rowsCount: 0 },
       },
       busy: false,
+      abort: null,
     };
 
     function fmtBytes(bytes){
@@ -547,6 +549,8 @@
       state.busy = busy;
       $("go").disabled = busy || !(state.tabs[state.activeTab].files.length);
       $("clear").disabled = busy || !(state.tabs[state.activeTab].files.length);
+      $("cancel").style.display = busy ? "inline-flex" : "none";
+      $("cancel").disabled = !busy;
       $("fileInput").disabled = busy;
       $("budget").disabled = busy;
       $("openFilter").disabled = busy;
@@ -778,12 +782,13 @@
         setStatus("Select PDF(s).", tab === "horizon" ? "Upload 1–6 Horizon PDFs." : "Upload one EDF PDF.", true);
         return;
       }
+      state.abort = new AbortController();
       setBusy(true); resetResult(tab); barIndeterminate();
       try{
         // Presign
         setSteps(0, false);
         setStatus("1/4 • Presign URL", "Requesting S3 upload links.");
-        const pres = await fetchJson(`/presign?count=${files.length}`);
+        const pres = await fetchJson(`/presign?count=${files.length}`, { signal: state.abort.signal });
         const uploads = pres.uploads || (pres.upload_url ? [{ upload_url: pres.upload_url, pdf_key: pres.pdf_key }] : []);
         if(uploads.length !== files.length){
           throw new Error("Presign count mismatch.");
@@ -793,7 +798,7 @@
         setSteps(1, true);
         for(let i=0; i<uploads.length; i++){
           setStatus(`2/4 • Uploading ${i+1}/${uploads.length}`, files[i].name || "");
-          const put = await fetch(uploads[i].upload_url, { method:"PUT", body: files[i] });
+          const put = await fetch(uploads[i].upload_url, { method:"PUT", body: files[i], signal: state.abort.signal });
           if(!put.ok) throw new Error("Upload failed: HTTP " + put.status);
         }
 
@@ -814,6 +819,7 @@
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
+          signal: state.abort.signal,
         });
         if(Array.isArray(proc.call_types)){
           const options = proc.call_types
@@ -840,6 +846,7 @@
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ excel_key: proc.excel_key }),
+          signal: state.abort.signal,
         });
 
         state.results[tab] = { rows: proc.rows || [], downloadUrl: dl.download_url, rowsCount: proc.rows_count || 0 };
@@ -853,6 +860,12 @@
         barNone(); clearSteps();
         const msg = e?.message || String(e);
         const detail = e?.status ? `HTTP ${e.status}. ` : "";
+        if(e?.name === "AbortError"){
+          setStatus("Cancelled.", "The operation was stopped on this device.");
+          setBusy(false);
+          state.abort = null;
+          return;
+        }
         const lowerMsg = msg.toLowerCase();
         let human = "We couldn’t process the file. Please try again. If it keeps happening, try a different PDF or smaller file.";
         let title = "Something went wrong";
@@ -867,7 +880,18 @@
         setStatus("Error.", "Please check the message and try again.", true);
       }finally{
         setBusy(false);
+        state.abort = null;
       }
+    };
+
+    $("cancel").onclick = () => {
+      if(state.abort){
+        state.abort.abort();
+      }
+      clearSteps();
+      barNone();
+      setBusy(false);
+      setStatus("Cancelled.", "The operation was stopped on this device.");
     };
 
     // init
