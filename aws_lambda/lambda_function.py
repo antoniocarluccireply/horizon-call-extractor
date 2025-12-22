@@ -1,5 +1,7 @@
 import os
 import re
+import base64
+import mimetypes
 import uuid
 import json
 import calendar
@@ -37,6 +39,43 @@ DEFAULT_MIN_BUDGET_M = float(os.environ.get("DEFAULT_MIN_BUDGET_M", "0"))
 DOC_HORIZON = "horizon"
 DOC_EDF = "edf"
 UI_PATH = os.path.join(os.path.dirname(__file__), "ui.html")
+ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
+
+def _serve_asset(request_path: str):
+    """
+    Serve files packaged inside Lambda under aws_lambda/assets/*
+    Example: GET /assets/adeptic.png
+    """
+    # request_path comes like "/assets/adeptic.png"
+    rel = (request_path or "").lstrip("/")  # "assets/adeptic.png"
+    if not rel.startswith("assets/"):
+        return {"statusCode": 404, "headers": {"Content-Type": "text/plain"}, "body": "Not found"}
+
+    # Avoid path traversal
+    rel_file = rel[len("assets/"):]  # "adeptic.png"
+    abs_path = os.path.abspath(os.path.join(ASSETS_DIR, rel_file))
+    assets_root = os.path.abspath(ASSETS_DIR)
+
+    if not abs_path.startswith(assets_root + os.sep):
+        return {"statusCode": 403, "headers": {"Content-Type": "text/plain"}, "body": "Forbidden"}
+
+    if not os.path.exists(abs_path):
+        return {"statusCode": 404, "headers": {"Content-Type": "text/plain"}, "body": "Not found"}
+
+    with open(abs_path, "rb") as f:
+        data = f.read()
+
+    ctype, _ = mimetypes.guess_type(abs_path)
+    return {
+        "statusCode": 200,
+        "headers": {
+            "Content-Type": ctype or "application/octet-stream",
+            "Cache-Control": "public, max-age=86400",
+            "access-control-allow-origin": "*",
+        },
+        "isBase64Encoded": True,
+        "body": base64.b64encode(data).decode("utf-8"),
+    }
 EDF_CALL_FAMILY_LABELS = {
     "RA": "RA — Research Actions",
     "DA": "DA — Development Actions",
@@ -934,6 +973,10 @@ def handler(event, context):
 
         if method == "OPTIONS":
             return _resp(200, "")
+
+        # Serve static assets packaged with the Lambda
+        if method == "GET" and path.startswith("/assets/"):
+            return _serve_asset(path)
 
         if method == "GET" and path == "/":
             return _resp(200, HTML, content_type="text/html; charset=utf-8")
