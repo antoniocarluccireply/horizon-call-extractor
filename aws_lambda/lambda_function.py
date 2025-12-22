@@ -484,10 +484,18 @@ def _matches_prefix(value: str, prefix: str) -> bool:
 
 def detect_document_family(text: str) -> str:
     low = (text or "").lower()
-    if re.search(r"\bedf-\d{4}-[a-z]{2,}", text, flags=re.IGNORECASE) or "european defence fund" in low:
-        return DOC_EDF
-    if "horizon europe" in low or "work programme" in low or re.search(r"\bhorizon-[a-z0-9]+-\d{4}-", text, flags=re.IGNORECASE):
+    horizon_signal = (
+        "horizon europe" in low
+        or "work programme" in low
+        or re.search(r"\bhorizon-[a-z0-9]+-\d{4}-", text, flags=re.IGNORECASE)
+    )
+    edf_matches = re.findall(r"\bedf-\d{4}-[a-z]{2,}", text, flags=re.IGNORECASE)
+    edf_keyword = "european defence fund" in low
+    if horizon_signal:
         return DOC_HORIZON
+    strong_edf = (edf_keyword and bool(edf_matches)) or len(edf_matches) >= 3
+    if strong_edf:
+        return DOC_EDF
     return "unknown"
 
 
