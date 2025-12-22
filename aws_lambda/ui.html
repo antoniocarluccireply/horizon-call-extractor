@@ -238,7 +238,7 @@
       <img class="logo" alt="Adeptic" src="/assets/adeptic.png" />
       <div class="brand">
         <h1>Horizon & EDF Call Extractor</h1>
-        <p>Upload Horizon or EDF PDFs → automatic detection → tables + Excel on click. Mobile-friendly, no auto-downloads.</p>
+        <p>Upload Horizon or EDF PDFs → get a table preview → download Excel when you click.</p>
       </div>
     </div>
 
@@ -247,13 +247,13 @@
         <button class="tab active" data-tab="horizon" id="tab-horizon">Horizon</button>
         <button class="tab" data-tab="edf" id="tab-edf">EDF</button>
       </div>
-      <p class="hint">The backend checks PDF text (“Horizon Europe”, “Work Programme”, “EDF-2026-…”) to prevent mismatches.</p>
+      <p class="hint">We automatically detect whether the PDF is Horizon or EDF to avoid mixing documents.</p>
 
       <div class="filters" id="filters">
         <div>
           <div class="filterlabel">Call types</div>
           <div class="textinput clickable" id="typeSummary">All types</div>
-          <div class="hint">Multi-select with funding percentage. Same UI for Horizon and EDF.</div>
+          <div class="hint">Multi-select call types. Same UI for Horizon and EDF.</div>
           <div class="dropdown" id="typeMenu" style="margin-top:6px; display:none;">
             <div class="actions" style="margin-bottom:6px;">
               <button class="btn" type="button" id="typeAll">Select all</button>
@@ -333,18 +333,31 @@
 
   <script>
     const $ = (id) => document.getElementById(id);
+    const CALL_TYPE_LABELS = {
+      "RIA": "RIA (Research and Innovation Actions)",
+      "IA": "IA (Innovation Actions)",
+      "CSA": "CSA (Coordination and Support Actions)",
+      "PCP": "PCP (Pre-Commercial Procurement)",
+      "PPI": "PPI (Public Procurement of Innovative Solutions)",
+      "COFUND": "COFUND (Co-fund Actions)",
+      "ERC": "ERC (European Research Council)",
+      "MSCA": "MSCA (Marie Skłodowska-Curie Actions)",
+      "EIC-PATHFINDER": "EIC-PATHFINDER (EIC Pathfinder)",
+      "EIC-TRANSITION": "EIC-TRANSITION (EIC Transition)",
+      "EIC-ACCELERATOR": "EIC-ACCELERATOR (EIC Accelerator)",
+    };
     const HORIZON_CALL_TYPES = [
-      { name: "RIA", funding: "100%" },
-      { name: "IA", funding: "70%" },
-      { name: "CSA", funding: "100%" },
-      { name: "PCP", funding: "N/A" },
-      { name: "PPI", funding: "N/A" },
-      { name: "COFUND", funding: "N/A" },
-      { name: "ERC", funding: "N/A" },
-      { name: "MSCA", funding: "N/A" },
-      { name: "EIC-PATHFINDER", funding: "N/A" },
-      { name: "EIC-TRANSITION", funding: "N/A" },
-      { name: "EIC-ACCELERATOR", funding: "N/A" },
+      { name: "RIA", label: CALL_TYPE_LABELS["RIA"] },
+      { name: "IA", label: CALL_TYPE_LABELS["IA"] },
+      { name: "CSA", label: CALL_TYPE_LABELS["CSA"] },
+      { name: "PCP", label: CALL_TYPE_LABELS["PCP"] },
+      { name: "PPI", label: CALL_TYPE_LABELS["PPI"] },
+      { name: "COFUND", label: CALL_TYPE_LABELS["COFUND"] },
+      { name: "ERC", label: CALL_TYPE_LABELS["ERC"] },
+      { name: "MSCA", label: CALL_TYPE_LABELS["MSCA"] },
+      { name: "EIC-PATHFINDER", label: CALL_TYPE_LABELS["EIC-PATHFINDER"] },
+      { name: "EIC-TRANSITION", label: CALL_TYPE_LABELS["EIC-TRANSITION"] },
+      { name: "EIC-ACCELERATOR", label: CALL_TYPE_LABELS["EIC-ACCELERATOR"] },
     ];
     const state = {
       activeTab: "horizon",
@@ -376,8 +389,7 @@
     }
 
     function formatCallTypeLabel(opt){
-      const pct = opt.funding && String(opt.funding).trim() ? opt.funding : "N/A";
-      return `${opt.name} — ${pct}`;
+      return opt.label || opt.name;
     }
 
     function updateTypeSummary(tab = state.activeTab){
@@ -412,6 +424,8 @@
         lbl.style.gap = "8px";
         lbl.style.marginRight = "10px";
         lbl.style.marginBottom = "6px";
+        lbl.style.fontSize = "13px";
+        lbl.style.fontWeight = "400";
         const input = document.createElement("input");
         input.type = "checkbox"; input.value = opt.name; input.checked = state.tabs[tab].selectedTypes.has(opt.name) || state.tabs[tab].selectedTypes.size === 0;
         input.onchange = () => {
@@ -716,7 +730,7 @@
         if(Array.isArray(proc.call_types)){
           const options = proc.call_types
             .filter(ct => ct?.name)
-            .map(ct => ({ name: ct.name, funding: ct.funding_percentage || "N/A" }));
+            .map(ct => ({ name: ct.name, label: CALL_TYPE_LABELS[ct.name] || ct.name }));
           const previous = new Set(state.tabs[tab].selectedTypes);
           state.tabs[tab].callTypes = options;
           const allowedNames = options.map(o => o.name);
