@@ -221,6 +221,35 @@
     .desc-summary{ display:flex; gap: 8px; flex-wrap: wrap; align-items:center; }
     .desc-preview{ color: var(--muted2); font-size: 12px; font-weight: 500; }
     .desc-body{ white-space: pre-wrap; line-height:1.35; font-size: 13px; color:#2f241c; }
+    .modal-overlay{
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      z-index: 9999;
+    }
+    .modal-card{
+      width: 92%;
+      max-width: 520px;
+      background: #fffdfa;
+      border: 1px solid #ede3d7;
+      border-radius: 18px;
+      box-shadow: 0 18px 44px rgba(0,0,0,.28);
+      padding: 18px 18px 14px;
+      color: #2f241c;
+    }
+    .modal-title{ margin: 0 0 6px; font-size: 18px; }
+    .modal-body{ margin: 0 0 10px; line-height: 1.5; }
+    .modal-actions{ display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+    .modal-details-toggle{ background: none; border: none; color: var(--accent-strong); font-weight: 700; cursor: pointer; padding: 6px 0; }
+    .modal-details{ display: none; background: #f9f6f1; border: 1px solid #e8ddcf; border-radius: 12px; padding: 10px; margin-top: 6px; white-space: pre-wrap; font-family: "SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace; font-size: 12px; color: #3c2c21; }
+    @media (max-width: 520px){
+      .modal-card{ padding: 16px; border-radius: 16px; }
+      .modal-title{ font-size: 16px; }
+    }
     @media (max-width: 760px){
       .wrap{ padding: 0 16px; }
       .filters{ grid-template-columns: 1fr; }
@@ -331,6 +360,18 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="errorModal" role="dialog" aria-modal="true" aria-labelledby="errorTitle" aria-describedby="errorBody">
+    <div class="modal-card">
+      <h3 class="modal-title" id="errorTitle">Something went wrong</h3>
+      <p class="modal-body" id="errorBody">We couldn’t process the file. Please try again.</p>
+      <button class="modal-details-toggle" id="errorDetailsToggle" type="button" aria-expanded="false" aria-controls="errorDetails" style="display:none;">Show details</button>
+      <div class="modal-details" id="errorDetails"></div>
+      <div class="modal-actions">
+        <button class="btn" type="button" id="errorClose">Close</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const $ = (id) => document.getElementById(id);
     const CALL_TYPE_LABELS = {
@@ -345,6 +386,8 @@
       "EIC-PATHFINDER": "EIC-PATHFINDER (EIC Pathfinder)",
       "EIC-TRANSITION": "EIC-TRANSITION (EIC Transition)",
       "EIC-ACCELERATOR": "EIC-ACCELERATOR (EIC Accelerator)",
+      "RA": "RA (Research Actions)",
+      "DA": "DA (Development Actions)",
     };
     const HORIZON_CALL_TYPES = [
       { name: "RIA", label: CALL_TYPE_LABELS["RIA"] },
@@ -359,11 +402,16 @@
       { name: "EIC-TRANSITION", label: CALL_TYPE_LABELS["EIC-TRANSITION"] },
       { name: "EIC-ACCELERATOR", label: CALL_TYPE_LABELS["EIC-ACCELERATOR"] },
     ];
+    const EDF_CALL_TYPES = [
+      { name: "RA", label: "RA (Research Actions)" },
+      { name: "DA", label: "DA (Development Actions)" },
+      { name: "CSA", label: "CSA (Coordination & Support Actions)" },
+    ];
     const state = {
       activeTab: "horizon",
       tabs: {
         horizon: { files: [], callTypes: [...HORIZON_CALL_TYPES], selectedTypes: new Set(HORIZON_CALL_TYPES.map(t => t.name)), minBudget: 0, openingFilter: "", deadlineFilter: "" },
-        edf: { files: [], callTypes: [], selectedTypes: new Set(), minBudget: 0, openingFilter: "", deadlineFilter: "" },
+        edf: { files: [], callTypes: [...EDF_CALL_TYPES], selectedTypes: new Set(EDF_CALL_TYPES.map(t => t.name)), minBudget: 0, openingFilter: "", deadlineFilter: "" },
       },
       results: {
         horizon: { rows: [], downloadUrl: null, rowsCount: 0 },
@@ -396,14 +444,14 @@
       const sel = state.tabs[tab].selectedTypes;
       const opts = state.tabs[tab].callTypes;
       const size = sel.size;
-      let summary = "All types";
-      if(size === opts.length || size === 0){ summary = "All types"; }
+      let summary = "No types";
+      if(size === opts.length && opts.length){ summary = "All types"; }
       else if(size === 1){
         const first = opts.find(o => sel.has(o.name));
-        summary = first ? formatCallTypeLabel(first) : "All types";
+        summary = first ? formatCallTypeLabel(first) : "No types";
       } else if(size > 1){
         const first = opts.find(o => sel.has(o.name));
-        summary = first ? `${formatCallTypeLabel(first)} +${size-1}` : "All types";
+        summary = first ? `${formatCallTypeLabel(first)} +${size-1}` : "No types";
       }
       $("typeSummary").textContent = summary;
     }
@@ -413,7 +461,7 @@
       box.innerHTML = "";
       const opts = state.tabs[tab].callTypes;
       if(!opts.length){
-        box.textContent = "Call types will appear after parsing the PDF.";
+        box.textContent = "No call types available.";
         updateTypeSummary(tab);
         return;
       }
@@ -427,7 +475,7 @@
         lbl.style.fontSize = "13px";
         lbl.style.fontWeight = "400";
         const input = document.createElement("input");
-        input.type = "checkbox"; input.value = opt.name; input.checked = state.tabs[tab].selectedTypes.has(opt.name) || state.tabs[tab].selectedTypes.size === 0;
+        input.type = "checkbox"; input.value = opt.name; input.checked = state.tabs[tab].selectedTypes.has(opt.name);
         input.onchange = () => {
           if(input.checked) state.tabs[tab].selectedTypes.add(opt.name); else state.tabs[tab].selectedTypes.delete(opt.name);
           updateTypeSummary(tab);
@@ -450,6 +498,35 @@
       $("statusSub").textContent = sub || "";
       $("final").textContent = isError ? "ERROR" : "Ready";
       $("final").style.color = isError ? "var(--bad)" : "var(--text)";
+    }
+
+    function hideErrorModal(){
+      const modal = $("errorModal");
+      const details = $("errorDetails");
+      const toggle = $("errorDetailsToggle");
+      modal.style.display = "none";
+      details.style.display = "none";
+      toggle.textContent = "Show details";
+      toggle.setAttribute("aria-expanded", "false");
+    }
+
+    function showErrorModal(userMessage, technicalMessage="", title="Something went wrong"){
+      $("errorTitle").textContent = title || "Something went wrong";
+      $("errorBody").textContent = userMessage || "We couldn’t process the file. Please try again.";
+      const details = $("errorDetails");
+      const toggle = $("errorDetailsToggle");
+      if(technicalMessage){
+        details.textContent = technicalMessage;
+        details.style.display = "none";
+        toggle.style.display = "inline-flex";
+        toggle.textContent = "Show details";
+        toggle.setAttribute("aria-expanded", "false");
+      } else {
+        details.textContent = "";
+        details.style.display = "none";
+        toggle.style.display = "none";
+      }
+      $("errorModal").style.display = "flex";
     }
 
     function barNone(){ $("bar").classList.remove("indet"); $("bar").style.width = "0%"; }
@@ -584,6 +661,17 @@
       state.tabs[tab].selectedTypes = new Set();
       renderTypeList(tab);
     };
+    $("errorDetailsToggle").onclick = () => {
+      const details = $("errorDetails");
+      const expanded = details.style.display === "block";
+      details.style.display = expanded ? "none" : "block";
+      $("errorDetailsToggle").textContent = expanded ? "Show details" : "Hide details";
+      $("errorDetailsToggle").setAttribute("aria-expanded", expanded ? "false" : "true");
+    };
+    $("errorClose").onclick = hideErrorModal;
+    $("errorModal").addEventListener("click", (e) => {
+      if(e.target === $("errorModal")) hideErrorModal();
+    });
     document.addEventListener("click", (e) => {
       if(e.target === $("typeSummary") || $("typeMenu").contains(e.target)) return;
       $("typeMenu").style.display = "none";
@@ -735,7 +823,13 @@
           state.tabs[tab].callTypes = options;
           const allowedNames = options.map(o => o.name);
           const kept = new Set([...previous].filter(n => allowedNames.includes(n)));
-          state.tabs[tab].selectedTypes = kept.size ? kept : new Set(allowedNames);
+          if(previous.size === 0){
+            state.tabs[tab].selectedTypes = new Set();
+          } else if(kept.size){
+            state.tabs[tab].selectedTypes = kept;
+          } else {
+            state.tabs[tab].selectedTypes = new Set(allowedNames);
+          }
           renderTypeList(tab);
         }
 
@@ -759,7 +853,18 @@
         barNone(); clearSteps();
         const msg = e?.message || String(e);
         const detail = e?.status ? `HTTP ${e.status}. ` : "";
-        setStatus("Error during processing.", detail + msg, true);
+        const lowerMsg = msg.toLowerCase();
+        let human = "We couldn’t process the file. Please try again. If it keeps happening, try a different PDF or smaller file.";
+        let title = "Something went wrong";
+        if(lowerMsg.includes("looks like edf")){
+          title = "Wrong tab selected";
+          human = "This PDF looks like an EDF document. Switch to the EDF tab and try again.";
+        } else if(lowerMsg.includes("looks like horizon")){
+          title = "Wrong tab selected";
+          human = "This PDF looks like a Horizon document. Switch to the Horizon tab and try again.";
+        }
+        showErrorModal(human, detail + msg, title);
+        setStatus("Error.", "Please check the message and try again.", true);
       }finally{
         setBusy(false);
       }
