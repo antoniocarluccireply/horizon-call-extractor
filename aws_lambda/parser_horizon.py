@@ -54,6 +54,39 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+def _normalize_title_text(s: str) -> str:
+    """
+    Clean title text for topic headlines.
+    - remove soft hyphens
+    - join words split by hyphen + newline or accidental concatenation
+    - ensure newlines become spaces
+    - collapse whitespace
+    """
+    if not s:
+        return ""
+
+    # Remove soft hyphen before other processing
+    s = s.replace("\u00ad", "")
+
+    # Join hyphenated line breaks: "Crimeprevention" happens when a newline is dropped; preserve the split
+    s = re.sub(r"(\w)-\s*\n\s*(\w)", r"\1 \2", s)
+    # If newline without hyphen splits words, reintroduce space
+    s = re.sub(r"(\w)\n(\w)", r"\1 \2", s)
+
+    # Replace remaining newlines with spaces
+    s = s.replace("\n", " ")
+
+    # Remove stray spaces around hyphens that may remain
+    s = _fix_inline_hyphen_spacing(s)
+
+    # Reintroduce spaces between camelCase-like joins (e.g., CrimePrevention)
+    s = re.sub(r"([a-z])([A-Z])", r"\1 \2", s)
+
+    # Collapse multiple spaces
+    s = re.sub(r"\s+", " ", s)
+    return s.strip()
+
+
 def _fix_inline_hyphen_spacing(s: str) -> str:
     """
     Collapse stray spaces that appear before hyphens inside words, e.g. "gender -based" -> "gender-based".
@@ -345,6 +378,24 @@ def parse_calls(text: str) -> List[Dict]:
             if r.get(k) not in (None, "", 0)
         )
 
+    def _stop_title(ln: str) -> bool:
+        if not ln:
+            return False
+        stop_keywords = (
+            "the director-general",
+            "all deadlines are",
+            "opening date",
+            "deadline date",
+            "funding:",
+            "funding opportunities",
+            "expected outcome",
+            "expected outcomes",
+            "expected impact",
+            "deadline(s)",
+        )
+        low = ln.lower()
+        return any(k in low for k in stop_keywords)
+
     def flush_topic():
         nonlocal pending_topic_id, pending_title_parts, pending_description_parts, pending_body, pending_page
         nonlocal pending_action_type, pending_budget_total, pending_per_min, pending_per_max, pending_projects
@@ -353,7 +404,7 @@ def parse_calls(text: str) -> List[Dict]:
         if not pending_topic_id:
             return
 
-        title_raw = _norm(" ".join(pending_title_parts))
+        title_raw = _normalize_title_text("\n".join(pending_title_parts))
         title_clean, title_page = _strip_dot_leader_page(title_raw)
         title_clean = _fix_inline_hyphen_spacing(title_clean)
 
@@ -480,6 +531,9 @@ def parse_calls(text: str) -> List[Dict]:
                 if RE_CALL_ID.search(nxt) and not RE_TOPIC_ID.search(nxt):
                     break
 
+                if _stop_title(nxt):
+                    break
+
                 tokens = nxt.split()
                 if tokens and tokens[0] in ACTION_TYPES:
                     ov, new_i = _parse_overview_block(lines, i)
@@ -548,7 +602,12 @@ def parse_calls(text: str) -> List[Dict]:
 
                         break
 
-                if not nxt.startswith("Destination - ") and not pending_description_parts and not RE_SKIP_DESC.match(nxt):
+                if (
+                    not nxt.startswith("Destination - ")
+                    and not pending_description_parts
+                    and not RE_SKIP_DESC.match(nxt)
+                    and not _stop_title(nxt)
+                ):
                     pending_title_parts.append(nxt)
 
                 i += 1
