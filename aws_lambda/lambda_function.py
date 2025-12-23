@@ -18,6 +18,22 @@ from openpyxl.styles import Alignment
 from parser_horizon import parse_calls
 from parser_edf import parse_edf
 
+
+class ApiError(Exception):
+    def __init__(self, status_code: int, code: str, message: str, **meta):
+        super().__init__(message)
+        self.status_code = status_code
+        self.code = code
+        self.message = message
+        self.meta = meta or {}
+
+    def to_payload(self):
+        payload = {"error": self.code, "message": self.message}
+        for k, v in self.meta.items():
+            if v is not None:
+                payload[k] = v
+        return payload
+
 s3 = boto3.client(
     "s3",
     region_name="eu-central-1",
@@ -227,6 +243,7 @@ def _process_pdf_keys(
 
     original_names = original_names or []
     edf_filters = edf_filters or {}
+    expected_type_norm = (expected_type or "").strip().lower() or None
 
     all_rows: List[Dict] = []
     detected_type: Optional[str] = None
@@ -236,19 +253,36 @@ def _process_pdf_keys(
         s3.download_file(BUCKET, key, local_pdf)
 
         text = extract_text(local_pdf)
-        doc_type = detect_document_family(text, expected_type=expected_type)
+        doc_type = detect_document_family(text)
         file_label = original_names[idx] if idx < len(original_names) else key
 
         if doc_type == "unknown":
-            raise RuntimeError(f"Unable to detect document family from PDF text ({file_label}).")
+            raise ApiError(
+                400,
+                "UNKNOWN_DOC_TYPE",
+                f"Unable to detect document family from PDF text ({file_label}).",
+                filename=file_label,
+            )
 
-        if expected_type and doc_type != expected_type:
-            raise RuntimeError(
-                f"Uploaded document looks like {doc_type.upper()} but active tab is {expected_type.upper()} ({file_label})."
+        if expected_type_norm and doc_type != expected_type_norm:
+            raise ApiError(
+                400,
+                "WRONG_TAB",
+                f"Uploaded document looks like {doc_type.upper()} but active tab is {expected_type_norm.upper()} ({file_label}).",
+                detected_type=doc_type,
+                expected_type=expected_type_norm,
+                filename=file_label,
             )
 
         if detected_type and doc_type != detected_type:
-            raise RuntimeError("Cannot mix Horizon and EDF PDFs in the same request.")
+            raise ApiError(
+                400,
+                "MIXED_DOC_TYPES",
+                "Cannot mix Horizon and EDF PDFs in the same request.",
+                detected_type=doc_type,
+                expected_type=detected_type,
+                filename=file_label,
+            )
         detected_type = doc_type
 
         parsed_rows = parse_calls(text) if doc_type == DOC_HORIZON else parse_edf(text)
@@ -1106,6 +1140,10 @@ def handler(event, context):
             return _resp(200, _json({"download_url": download_url}))
 
         return _resp(404, _json({"error": "not_found", "path": path, "method": method}))
+
+    except ApiError as e:
+        print("API ERROR:", repr(e))
+        return _resp(e.status_code, _json(e.to_payload()))
 
     except Exception as e:
         # log completo su CloudWatch, ma rispondiamo con messaggio leggibile al browser
