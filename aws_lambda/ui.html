@@ -89,9 +89,19 @@
     .filters{
       margin: 14px 0 12px;
       display:grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      grid-template-columns: 1fr;
       gap: 12px;
     }
+    .filter-item{ display:flex; flex-direction:column; gap: 6px; }
+    .date-row{ display:flex; gap: 8px; align-items:center; flex-wrap: wrap; }
+    .clear-btn{
+      padding: 8px 10px;
+      font-size: 12px;
+      border-radius: 10px;
+      background: #f5f0e8;
+      border-color: #d9d1c4;
+    }
+    .clear-btn:disabled{ opacity: .6; cursor:not-allowed; }
     .filterlabel{
       color: var(--muted);
       font-size: 12px;
@@ -262,6 +272,13 @@
       .filters{ grid-template-columns: 1fr; }
       .stepper{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
+    @media (min-width: 900px){
+      .filters{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .filter-calltypes{ order: 1; }
+      .filter-budget{ order: 2; }
+      .filter-opening{ order: 3; }
+      .filter-deadline{ order: 4; }
+    }
     @media (max-width: 520px){
       .stepper{ display:flex; flex-direction: column; }
       .dropzone{ padding: 14px; }
@@ -286,7 +303,7 @@
       <p class="hint">We automatically detect whether the PDF is Horizon or EDF to avoid mixing documents.</p>
 
       <div class="filters" id="filters">
-        <div>
+        <div class="filter-item filter-calltypes">
           <div class="filterlabel">Call types</div>
           <div class="textinput clickable" id="typeSummary">All types</div>
           <div class="hint">Multi-select call types. Same UI for Horizon and EDF.</div>
@@ -298,7 +315,7 @@
             <div id="typeList"></div>
           </div>
         </div>
-        <div>
+        <div class="filter-item filter-budget">
           <div class="filterlabel">Min. budget per project (M€)</div>
           <div class="sliderwrap">
             <div class="bubble" id="budgetBubble">0 M€</div>
@@ -306,13 +323,21 @@
             <div class="hint">Range 0 → 15+. At 15 it selects only ≥ 15 M€.</div>
           </div>
         </div>
-        <div>
+        <div class="filter-item filter-opening">
           <div class="filterlabel">Opening date</div>
-          <input class="textinput" id="openFilter" type="text" placeholder="YYYY or YYYY-Qx or YYYY-MM-DD"/>
+          <div class="date-row">
+            <input class="textinput" id="openFilter" type="date" aria-label="Opening date filter" placeholder="YYYY-MM-DD"/>
+            <button class="btn clear-btn" type="button" id="openClear">Clear</button>
+          </div>
+          <div class="hint">Pick a date (YYYY-MM-DD).</div>
         </div>
-        <div>
+        <div class="filter-item filter-deadline">
           <div class="filterlabel">Deadline date</div>
-          <input class="textinput" id="deadlineFilter" type="text" placeholder="YYYY or YYYY-Qx or YYYY-MM-DD"/>
+          <div class="date-row">
+            <input class="textinput" id="deadlineFilter" type="date" aria-label="Deadline date filter" placeholder="YYYY-MM-DD"/>
+            <button class="btn clear-btn" type="button" id="deadlineClear">Clear</button>
+          </div>
+          <div class="hint">Pick a date (YYYY-MM-DD).</div>
         </div>
       </div>
 
@@ -511,6 +536,19 @@
       $("budgetBubble").textContent = num >= 15 ? "15+ M€" : `${num} M€`;
     }
 
+    function updateDateClearButtons(tab = state.activeTab){
+      const openVal = state.tabs[tab].openingFilter || "";
+      const deadlineVal = state.tabs[tab].deadlineFilter || "";
+      $("openClear").disabled = state.busy || !openVal;
+      $("deadlineClear").disabled = state.busy || !deadlineVal;
+    }
+
+    function syncDateInputs(tab = state.activeTab){
+      $("openFilter").value = state.tabs[tab].openingFilter || "";
+      $("deadlineFilter").value = state.tabs[tab].deadlineFilter || "";
+      updateDateClearButtons(tab);
+    }
+
     function setStatus(main, sub, isError=false){
       $("statusMain").textContent = main;
       $("statusSub").textContent = sub || "";
@@ -606,6 +644,7 @@
       $("budget").disabled = busy;
       $("openFilter").disabled = busy;
       $("deadlineFilter").disabled = busy;
+      updateDateClearButtons(state.activeTab);
     }
 
     function setFiles(tab, files){
@@ -647,8 +686,7 @@
       $("results-horizon").classList.toggle("active", tab === "horizon");
       $("results-edf").classList.toggle("active", tab === "edf");
       $("fileInput").multiple = tab === "horizon";
-      $("openFilter").value = state.tabs[tab].openingFilter || "";
-      $("deadlineFilter").value = state.tabs[tab].deadlineFilter || "";
+      syncDateInputs(tab);
       setBudget(state.tabs[tab].minBudget, tab);
       renderTypeList(tab);
       renderFileList();
@@ -737,8 +775,24 @@
     });
 
     $("budget").addEventListener("input", (e) => setBudget(e.target.value, state.activeTab));
-    $("openFilter").addEventListener("input", (e) => state.tabs[state.activeTab].openingFilter = (e.target.value || "").trim());
-    $("deadlineFilter").addEventListener("input", (e) => state.tabs[state.activeTab].deadlineFilter = (e.target.value || "").trim());
+    $("openFilter").addEventListener("input", (e) => {
+      state.tabs[state.activeTab].openingFilter = (e.target.value || "").trim();
+      updateDateClearButtons();
+    });
+    $("deadlineFilter").addEventListener("input", (e) => {
+      state.tabs[state.activeTab].deadlineFilter = (e.target.value || "").trim();
+      updateDateClearButtons();
+    });
+    $("openClear").onclick = () => {
+      state.tabs[state.activeTab].openingFilter = "";
+      $("openFilter").value = "";
+      updateDateClearButtons();
+    };
+    $("deadlineClear").onclick = () => {
+      state.tabs[state.activeTab].deadlineFilter = "";
+      $("deadlineFilter").value = "";
+      updateDateClearButtons();
+    };
 
     $("tab-horizon").onclick = () => switchTab("horizon");
     $("tab-edf").onclick = () => switchTab("edf");
@@ -1065,6 +1119,7 @@
     // init
     renderTypeList();
     setBudget(state.tabs.horizon.minBudget);
+    syncDateInputs();
     renderResults("horizon");
   </script>
 </body>
