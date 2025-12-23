@@ -38,6 +38,21 @@ RE_SKIP_DESC = re.compile(
     flags=re.IGNORECASE,
 )
 
+STOP_TITLE_MARKERS = (
+    "annex",
+    "eligibility conditions",
+    "admissibility conditions",
+    "general conditions",
+    "conditions are described in general",
+    "topic conditions and documents",
+    "opening date",
+    "deadline date",
+    "deadline(s)",
+    "expected outcome",
+    "scope",
+    "funding opportunities",
+)
+
 def _norm(s: str) -> str:
     s = (s or "").strip()
 
@@ -100,7 +115,8 @@ def _normalize_title_text(s: str) -> str:
 
     s = re.sub(r"(?i)\b([a-z]{4,})(on|in|of|for|with|and|to|by|from|at)\b", _split_glued, s)
     s = re.sub(r"(?i)\b([a-z]{4,})(and|for|on|in|with|between|across)([a-z]{3,})\b", r"\1 \2 \3", s)
-    s = re.sub(r"(?i)\b([a-z]{4,})(capabilities|prevention|security|safety|resilience)\b", r"\1 \2", s)
+    s = re.sub(r"(?i)\b([a-z]{4,})(capabilities|prevention|security|safety|resilience|eligibility|conditions)\b", r"\1 \2", s)
+    s = re.sub(r"(?i)\b([a-z]{4,})(outcome|scope|innovation|solution|solutions|systems?)\b", r"\1 \2", s)
 
     # Reintroduce spaces between camelCase-like joins (e.g., CrimePrevention)
     s = re.sub(r"([a-z])([A-Z])", r"\1 \2", s)
@@ -129,6 +145,16 @@ def _strip_dot_leader_page(s: str) -> Tuple[str, Optional[int]]:
     page = int(m.group(1))
     cleaned = RE_DOT_LEADER_PAGE.sub("", s).strip()
     return cleaned, page
+
+
+def _trim_title_stop_phrases(title: str) -> str:
+    low = (title or "").lower()
+    cut = len(title or "")
+    for marker in STOP_TITLE_MARKERS:
+        idx = low.find(marker)
+        if idx != -1:
+            cut = min(cut, idx)
+    return title[:cut].strip(" -;,.") if title else title
 
 
 def _parse_cluster_line(ln: str) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[int]]:
@@ -412,16 +438,16 @@ def _extract_topic_description(body_text: Optional[str]) -> Tuple[Optional[str],
             "the conditions are described in general",
             "topic conditions and documents",
         )
-        return any(low.startswith(p) for p in stop_prefixes)
+        return any(low.startswith(p) for p in stop_prefixes) or any(low.startswith(m) for m in STOP_TITLE_MARKERS)
 
     expected_idx = None
     scope_idx = None
     for idx, ln in enumerate(lines):
         low = ln.lower()
-        if expected_idx is None and low.startswith("expected outcome"):
+        if expected_idx is None and re.match(r"expected outcomes?:?", low):
             expected_idx = idx
             continue
-        if scope_idx is None and low.startswith("scope"):
+        if scope_idx is None and re.match(r"scope:?(\s|$)", low):
             scope_idx = idx
             continue
 
@@ -504,24 +530,13 @@ def parse_calls(text: str) -> List[Dict]:
             "the director-general",
             "all deadlines are",
             "brussels local time",
-            "opening date",
-            "deadline date",
             "funding:",
-            "funding opportunities",
-            "expected outcome",
             "expected outcomes",
             "expected impact",
-            "deadline(s)",
-            "annex",
-            "eligibility conditions",
-            "the conditions are described in general",
-            "conditions are described in general",
-            "admissibility conditions",
             "general conditions relating to this call",
-            "topic conditions and documents",
         )
         low = ln.lower()
-        return any(k in low for k in stop_keywords)
+        return any(k in low for k in stop_keywords) or any(m in low for m in STOP_TITLE_MARKERS)
 
     def flush_topic():
         nonlocal pending_topic_id, pending_title_parts, pending_description_parts, pending_body, pending_page
@@ -533,7 +548,7 @@ def parse_calls(text: str) -> List[Dict]:
 
         title_raw = _normalize_title_text("\n".join(pending_title_parts))
         title_clean, title_page = _strip_dot_leader_page(title_raw)
-        title_clean = _fix_inline_hyphen_spacing(title_clean)
+        title_clean = _trim_title_stop_phrases(_fix_inline_hyphen_spacing(title_clean))
 
         page = current_page or pending_page or title_page or current_cluster_page
         expected_text, scope_text = _extract_topic_description(pending_body)

@@ -76,6 +76,8 @@
       font-size: 12px;
       font-weight: 700;
       white-space: nowrap;
+      align-self:flex-start;
+      flex-shrink:0;
     }
     .card{
       margin-top: 18px;
@@ -214,9 +216,10 @@
     .btn:disabled{ opacity:.6; cursor:not-allowed; }
     input[type=file]{ position:absolute; inset:0; opacity:0; pointer-events:none; }
     .progresswrap{ margin-top: 12px; display:flex; flex-direction:column; gap:6px; }
-    .progressline{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap: wrap; color: var(--muted); font-size: 13px; font-weight:600; }
+    .progressline{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap: wrap; color: var(--muted); font-size: 13px; font-weight:700; }
+    .progressstage{ color:#2f241c; font-weight:800; }
     .progressvalue{ color: #1f2c1f; font-weight: 800; }
-    .progress{ height: 10px; border-radius: 999px; background: #e6dfd3; border:1px solid #d9d2c7; overflow:hidden; }
+    .progress{ height: 12px; border-radius: 999px; background: #e6dfd3; border:1px solid #d9d2c7; overflow:hidden; }
     .bar{ width:0%; height:100%; border-radius:999px; background: linear-gradient(90deg, #88a17f, var(--accent)); transition: width .2s ease; }
     .bar.indet{ width:100%; animation: indet 1.2s infinite linear; transform-origin:left; }
     @keyframes indet{ 0%{ transform: translateX(-100%);} 100%{ transform: translateX(100%);} }
@@ -296,6 +299,7 @@
     @media (max-width: 520px){
       .modal-card{ padding: 16px; border-radius: 16px; }
       .modal-title{ font-size: 16px; }
+      .progressline{ font-size: 14px; }
     }
     @media (max-width: 760px){
       .wrap{ padding: 0 16px; }
@@ -390,7 +394,7 @@
         </div>
         <div class="progresswrap">
           <div class="progressline">
-            <span>Progress</span>
+            <span class="progressstage" id="progressLabel">Idle</span>
             <span class="progressvalue" id="progressText">0%</span>
           </div>
           <div class="progress" aria-label="progress">
@@ -560,7 +564,8 @@
       expected = expected.replace(/^Expected Outcome:?\s*/i, "").trim();
       const expectedLines = expected.split(/\n+/).filter(Boolean);
       const previewLines = expectedLines.slice(0, Math.max(2, Math.min(4, expectedLines.length || 2)));
-      const preview = (previewLines.join("\n") || expected || full).trim();
+      const basePreview = (previewLines.join("\n") || expected || full).trim();
+      const preview = expected ? `Expected Outcome: ${basePreview}` : basePreview;
       return { full, preview, expected, scope };
     }
 
@@ -666,6 +671,10 @@
       $("errorModal").style.display = "flex";
     }
 
+    function setProgressStage(text){
+      $("progressLabel").textContent = text || "Progress";
+    }
+
     function _updateBarWidth(){
       const bar = $("bar");
       if(bar.classList.contains("indet")){
@@ -680,7 +689,7 @@
       $("progressText").textContent = `${Math.round(val)}%`;
       _updateBarWidth();
     }
-    function barNone(){ $("bar").classList.remove("indet"); setProgress(0); }
+    function barNone(){ $("bar").classList.remove("indet"); setProgressStage("Idle"); setProgress(0); }
     function barIndeterminate(){ $("bar").classList.add("indet"); _updateBarWidth(); }
     function barDeterminate(){ $("bar").classList.remove("indet"); _updateBarWidth(); }
 
@@ -978,6 +987,9 @@
         const grid = document.createElement("div");
         grid.className = "row-grid";
         const fields = [
+          ["Stage", r.stage || "—"],
+          ["Call round", r.call_round || "—"],
+          ["TRL", r.trl || "—"],
           ["Min. budget per project (M€)", formatBudget(r.budget_per_project_min_eur_m)],
           ["Opening date", r.opening_date || "—"],
           ["Deadline date", r.deadline_date || "—"],
@@ -1089,7 +1101,7 @@
       state.abort = new AbortController();
       stopProcessDrift();
       state.uploadXhrs = [];
-      setBusy(true); resetResult(tab); barDeterminate(); setProgress(0);
+      setBusy(true); resetResult(tab); barDeterminate(); setProgress(0); setProgressStage("Presigning");
       try{
         // Presign
         setSteps(0, false);
@@ -1104,6 +1116,7 @@
 
         // Upload
         setSteps(1, true);
+        setProgressStage("Uploading");
         setProgress(10);
         setStatus(`2/4 • Uploading 1/${uploads.length}`, files[0].name || "");
         await uploadWithProgress(files, uploads);
@@ -1112,6 +1125,7 @@
 
         // Process
         setSteps(2, true);
+        setProgressStage("Parsing + Excel");
         startProcessDrift(60, 85);
         setStatus("3/4 • Parsing + Excel…", "Detecting document family, applying filters, building workbook.");
         const payload = {
@@ -1152,6 +1166,7 @@
         // Download link
         stopProcessDrift();
         barDeterminate();
+        setProgressStage("Preparing download");
         setProgress(90);
         setSteps(3, true);
         setStatus("4/4 • Preparing download…", "Creating a temporary Excel link.");
@@ -1164,6 +1179,7 @@
         ensureActiveRun(runId);
         state.results[tab] = { rows: proc.rows || [], downloadUrl: dl.download_url, rowsCount: proc.rows_count || 0, summaryNotice: proc.summary_notice || "" };
         setProgress(100);
+        setProgressStage("Done");
         [$("s1"),$("s2"),$("s3"),$("s4")].forEach(el => { el.classList.remove("active"); el.classList.add("done"); });
         renderResults(tab);
         setStatus("Completed ✅", "Download available on button click. No auto-downloads.");
@@ -1172,6 +1188,7 @@
       }catch(e){
         stopProcessDrift();
         barNone(); clearSteps();
+        setProgressStage("Error");
         const msg = e?.message || String(e);
         const detail = e?.status ? `HTTP ${e.status}. ` : "";
         const payload = e?.payload || {};
@@ -1183,7 +1200,7 @@
           return;
         }
         const lowerMsg = msg.toLowerCase();
-        let human = "We couldn’t process the file. Please try again. If it keeps happening, try a different PDF or smaller file.";
+        let human = payload.message || "We couldn’t process the file. Please try again. If it keeps happening, try a different PDF or smaller file.";
         let title = "Something went wrong";
         if(payload.code === "WRONG_TAB"){
           const detectedRaw = payload.detected_type || payload.detected;
@@ -1200,7 +1217,8 @@
           title = "Wrong tab selected";
           human = "Wrong tab selected. This PDF looks like a Horizon document. Switch to Horizon tab and try again.";
         }
-        showErrorModal(human, detail + (payload.message || msg), title);
+        const technical = detail + (payload.details || payload.message || msg);
+        showErrorModal(human, technical, title);
         setStatus("Error.", "Please check the message and try again.", true);
       }finally{
         clearRun(runId);

@@ -344,7 +344,19 @@ def _process_pdf_keys(
             )
         detected_type = doc_type
 
-        parsed_rows = parse_calls(text) if doc_type == DOC_HORIZON else parse_edf(text)
+        try:
+            parsed_rows = parse_calls(text) if doc_type == DOC_HORIZON else parse_edf(text)
+        except Exception as e:
+            print("PARSE ERROR:", repr(e))
+            print(traceback.format_exc())
+            raise ApiError(
+                500,
+                "PARSE_ERROR",
+                f"Failed to parse PDF content ({file_label}).",
+                filename=file_label,
+                details=str(e),
+            )
+
         for r in parsed_rows:
             r["source_pdf"] = file_label
         all_rows.extend(parsed_rows)
@@ -354,6 +366,7 @@ def _process_pdf_keys(
 
     # Shared temp Excel path
     local_xlsx = f"/tmp/{uuid.uuid4()}.xlsx"
+    rows: List[Dict] = []
 
     if detected_type == DOC_EDF:
         call_family = (edf_filters.get("call_family") or "").strip()
@@ -396,51 +409,51 @@ def _process_pdf_keys(
             doc_type=detected_type,
         )
 
-    summary_notice = _summarize_topics(rows, DOC_EDF, context=context)
+        summary_notice = _summarize_topics(rows, DOC_EDF, context=context)
 
-    write_xlsx(rows + [r for r in all_rows if r.get("record_level") == "CALL"], local_xlsx, DOC_EDF)
+        write_xlsx(rows + [r for r in all_rows if r.get("record_level") == "CALL"], local_xlsx, DOC_EDF)
 
-    safe_base = _safe_base_name(original_names[0] if original_names else pdf_keys[0])
-    if len(pdf_keys) > 1:
-        safe_base = f"{safe_base}-combined"
-    out_key = f"outputs/{uuid.uuid4()}/{safe_base}.xlsx"
-    s3.upload_file(local_xlsx, BUCKET, out_key)
+        safe_base = _safe_base_name(original_names[0] if original_names else pdf_keys[0])
+        if len(pdf_keys) > 1:
+            safe_base = f"{safe_base}-combined"
+        out_key = f"outputs/{uuid.uuid4()}/{safe_base}.xlsx"
+        s3.upload_file(local_xlsx, BUCKET, out_key)
 
-    display_rows = []
-    for r in rows:
-        call_type = _row_call_type(r, DOC_EDF)
-        funding = _funding_percentage(r, DOC_EDF)
-        if call_type and call_type not in call_types_meta:
-            call_types_meta[call_type] = funding
+        display_rows = []
+        for r in rows:
+            call_type = _row_call_type(r, DOC_EDF)
+            funding = _funding_percentage(r, DOC_EDF)
+            if call_type and call_type not in call_types_meta:
+                call_types_meta[call_type] = funding
 
-        display_rows.append(
-            {
-                "record_level": r.get("record_level"),
-                "call_id": r.get("call_id"),
-                "topic_id": r.get("topic_id"),
-                "topic_id": r.get("topic_id"),
-                "topic_url": _topic_url(r.get("topic_id")),
-                "topic_title": r.get("topic_title"),
-                "title": r.get("title"),
-                "section_no": r.get("section_no"),
-                "budget_per_project_min_eur_m": r.get("budget_per_project_min_eur_m"),
-                "opening_date": r.get("opening_date"),
-                "deadline_date": r.get("deadline_date"),
-                "call_type": call_type,
-                "funding_percentage": funding,
-                "summary": r.get("summary") or "",
-            }
-        )
+            display_rows.append(
+                {
+                    "record_level": r.get("record_level"),
+                    "call_id": r.get("call_id"),
+                    "topic_id": r.get("topic_id"),
+                    "topic_id": r.get("topic_id"),
+                    "topic_url": _topic_url(r.get("topic_id")),
+                    "topic_title": r.get("topic_title"),
+                    "title": r.get("title"),
+                    "section_no": r.get("section_no"),
+                    "budget_per_project_min_eur_m": r.get("budget_per_project_min_eur_m"),
+                    "opening_date": r.get("opening_date"),
+                    "deadline_date": r.get("deadline_date"),
+                    "call_type": call_type,
+                    "funding_percentage": funding,
+                    "summary": r.get("summary") or "",
+                }
+            )
 
-    return {
-        "status": "ok",
-        "excel_key": out_key,
-        "rows": display_rows,
-        "rows_count": len(rows),
-        "doc_type": detected_type,
-        "call_types": [{"name": k, "funding_percentage": v} for k, v in call_types_meta.items()],
-        "summary_notice": summary_notice,
-    }
+        return {
+            "status": "ok",
+            "excel_key": out_key,
+            "rows": display_rows,
+            "rows_count": len(rows),
+            "doc_type": detected_type,
+            "call_types": [{"name": k, "funding_percentage": v} for k, v in call_types_meta.items()],
+            "summary_notice": summary_notice,
+        }
 
     # Horizon flow
     call_types_meta = {}
@@ -465,9 +478,9 @@ def _process_pdf_keys(
     for r in rows:
         body_text = (r.get("topic_body") or "").strip()
         if not r.get("stage"):
-            r["stage"] = _derive_stage_from_topic_id(r.get("topic_id"))
+            r["stage"] = _derive_stage_from_topic_id(r.get("topic_id")) or _derive_stage_from_topic_id(r.get("call_id"))
         if not r.get("call_round"):
-            r["call_round"] = _derive_call_round_from_topic_id(r.get("topic_id"))
+            r["call_round"] = _derive_call_round_from_topic_id(r.get("topic_id")) or _derive_call_round_from_topic_id(r.get("call_id"))
         if not r.get("trl"):
             r["trl"] = _extract_trl_from_text(body_text or r.get("topic_description"))
         if not r.get("topic_description") and body_text:
@@ -612,7 +625,6 @@ def _write_horizon_xlsx(rows, xlsx_path: str):
         "call_id",
         "topic_id",
         "topic_title",
-        "summary",
         "topic_description",
         "action_type",
         "funding_percentage",
@@ -628,7 +640,7 @@ def _write_horizon_xlsx(rows, xlsx_path: str):
 
     for r in rows:
         row_payload = dict(r)
-        row_payload["summary"] = row_payload.get("topic_description") or row_payload.get("summary")
+        row_payload["topic_description"] = row_payload.get("topic_description") or row_payload.get("summary")
         row_values = [row_payload.get(h) for h in headers]
         ws.append(row_values)
 
@@ -642,15 +654,11 @@ def _write_horizon_xlsx(rows, xlsx_path: str):
 
     # Wrap summary and description cells
     wrap_align = Alignment(wrap_text=True, vertical="top")
-    summary_col_idx = headers.index("summary") + 1
-    summary_col_letter = ws.cell(row=1, column=summary_col_idx).column_letter
-    ws.column_dimensions[summary_col_letter].width = 80
     desc_col_idx = headers.index("topic_description") + 1
     desc_col_letter = ws.cell(row=1, column=desc_col_idx).column_letter
     ws.column_dimensions[desc_col_letter].width = 100
 
     for row_idx in range(2, ws.max_row + 1):
-        ws.cell(row=row_idx, column=summary_col_idx).alignment = wrap_align
         ws.cell(row=row_idx, column=desc_col_idx).alignment = wrap_align
 
     wb.save(xlsx_path)
