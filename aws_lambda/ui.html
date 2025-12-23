@@ -457,6 +457,7 @@
         edf: { rows: [], downloadUrl: null, rowsCount: 0 },
       },
       busy: false,
+      currentRunId: null,
       abort: null,
       uploadXhrs: [],
       processTicker: null,
@@ -468,6 +469,31 @@
       let i = 0; let n = bytes;
       while(n >= 1024 && i < u.length-1){ n/=1024; i++; }
       return (i === 0 ? n : n.toFixed(1)) + " " + u[i];
+    }
+
+    function newRunId(){
+      if(window.crypto && crypto.randomUUID){
+        return crypto.randomUUID();
+      }
+      return `run-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
+
+    function startRun(){
+      const id = newRunId();
+      state.currentRunId = id;
+      return id;
+    }
+
+    function clearRun(id){
+      if(state.currentRunId === id){
+        state.currentRunId = null;
+      }
+    }
+
+    function ensureActiveRun(id){
+      if(!id || state.currentRunId !== id){
+        throw new DOMException("Stale run", "AbortError");
+      }
     }
 
     const budgetFormatter = new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -991,6 +1017,7 @@
         setStatus("Select PDF(s).", tab === "horizon" ? "Upload 1–6 Horizon PDFs." : "Upload one EDF PDF.", true);
         return;
       }
+      const runId = startRun();
       state.abort = new AbortController();
       stopProcessDrift();
       state.uploadXhrs = [];
@@ -1001,6 +1028,7 @@
         setStatus("1/4 • Presign URL", "Requesting S3 upload links.");
         setProgress(5);
         const pres = await fetchJson(`/presign?count=${files.length}`, { signal: state.abort.signal });
+        ensureActiveRun(runId);
         const uploads = pres.uploads || (pres.upload_url ? [{ upload_url: pres.upload_url, pdf_key: pres.pdf_key }] : []);
         if(uploads.length !== files.length){
           throw new Error("Presign count mismatch.");
@@ -1011,6 +1039,7 @@
         setProgress(10);
         setStatus(`2/4 • Uploading 1/${uploads.length}`, files[0].name || "");
         await uploadWithProgress(files, uploads);
+        ensureActiveRun(runId);
         setStatus(`2/4 • Uploading ${uploads.length}/${uploads.length}`, "Uploads complete.");
 
         // Process
@@ -1033,6 +1062,7 @@
           body: JSON.stringify(payload),
           signal: state.abort.signal,
         });
+        ensureActiveRun(runId);
         if(Array.isArray(proc.call_types)){
           const options = proc.call_types
             .filter(ct => ct?.name)
@@ -1063,7 +1093,7 @@
           body: JSON.stringify({ excel_key: proc.excel_key }),
           signal: state.abort.signal,
         });
-
+        ensureActiveRun(runId);
         state.results[tab] = { rows: proc.rows || [], downloadUrl: dl.download_url, rowsCount: proc.rows_count || 0 };
         setProgress(100);
         [$("s1"),$("s2"),$("s3"),$("s4")].forEach(el => { el.classList.remove("active"); el.classList.add("done"); });
@@ -1076,25 +1106,36 @@
         barNone(); clearSteps();
         const msg = e?.message || String(e);
         const detail = e?.status ? `HTTP ${e.status}. ` : "";
+        const payload = e?.payload || {};
         if(e?.name === "AbortError"){
           setStatus("Cancelled.", "The operation was stopped on this device.");
           setBusy(false);
           state.abort = null;
+          clearRun(runId);
           return;
         }
         const lowerMsg = msg.toLowerCase();
         let human = "We couldn’t process the file. Please try again. If it keeps happening, try a different PDF or smaller file.";
         let title = "Something went wrong";
-        if(lowerMsg.includes("looks like edf")){
+        if(payload.code === "WRONG_TAB"){
+          const detectedRaw = payload.detected_type || payload.detected;
+          const expectedRaw = payload.expected_type || tab;
+          const detected = detectedRaw ? String(detectedRaw).toUpperCase() : "OTHER";
+          const expected = expectedRaw ? String(expectedRaw).toUpperCase() : tab.toUpperCase();
+          const filename = payload.filename ? ` (${payload.filename})` : "";
+          title = "Wrong tab selected";
+          human = `Wrong tab selected. This PDF looks like a ${detected} document${filename}. Switch to the ${expected} tab and try again.`;
+        } else if(lowerMsg.includes("looks like edf")){
           title = "Wrong tab selected";
           human = "Wrong tab selected. This PDF looks like an EDF document. Switch to EDF tab and try again.";
         } else if(lowerMsg.includes("looks like horizon")){
           title = "Wrong tab selected";
           human = "Wrong tab selected. This PDF looks like a Horizon document. Switch to Horizon tab and try again.";
         }
-        showErrorModal(human, detail + msg, title);
+        showErrorModal(human, detail + (payload.message || msg), title);
         setStatus("Error.", "Please check the message and try again.", true);
       }finally{
+        clearRun(runId);
         setBusy(false);
         state.abort = null;
         state.uploadXhrs = [];
@@ -1109,6 +1150,7 @@
       }
       state.uploadXhrs.forEach(x => { try{ x.abort(); }catch(_e){} });
       state.uploadXhrs = [];
+      clearRun(state.currentRunId);
       clearSteps();
       barNone();
       resetResult(state.activeTab);

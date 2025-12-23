@@ -41,6 +41,9 @@ RE_SKIP_DESC = re.compile(
 def _norm(s: str) -> str:
     s = (s or "").strip()
 
+    # Prevent soft hyphen removal from concatenating words
+    s = re.sub(r"([A-Za-z])\u00ad([A-Za-z])", r"\1 \2", s)
+
     # Normalize weird hyphenation chars from PDFs
     s = s.replace("\u00ad", "")   # soft hyphen
     s = s.replace("￾", "-")       # seen as 'two￾stage' in some extractions
@@ -64,6 +67,8 @@ def _normalize_title_text(s: str) -> str:
     """
     if not s:
         return ""
+
+    s = re.sub(r"([A-Za-z])\u00ad([A-Za-z])", r"\1 \2", s)
 
     # Remove soft hyphen before other processing
     s = s.replace("\u00ad", "")
@@ -384,6 +389,7 @@ def parse_calls(text: str) -> List[Dict]:
         stop_keywords = (
             "the director-general",
             "all deadlines are",
+            "brussels local time",
             "opening date",
             "deadline date",
             "funding:",
@@ -579,6 +585,9 @@ def parse_calls(text: str) -> List[Dict]:
                             tail = _norm(lines[i])
 
                             if not tail or tail.startswith("Destination - ") or tail.startswith("Call - ") or RE_TOPIC_ID.search(tail):
+                                break
+
+                            if _stop_title(tail):
                                 break
 
                             m_float_end = re.search(r"(.*)\b(\d{1,4}(?:\.\d{1,2})?)\s*$", tail)
