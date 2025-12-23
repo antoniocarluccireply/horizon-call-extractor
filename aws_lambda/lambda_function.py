@@ -303,6 +303,8 @@ def _process_pdf_keys(
             doc_type=detected_type,
         )
 
+        _summarize_topics(rows, DOC_EDF, context=context)
+
         write_xlsx(rows + [r for r in all_rows if r.get("record_level") == "CALL"], local_xlsx, DOC_EDF)
 
         safe_base = _safe_base_name(original_names[0] if original_names else pdf_keys[0])
@@ -333,6 +335,7 @@ def _process_pdf_keys(
                     "deadline_date": r.get("deadline_date"),
                     "call_type": call_type,
                     "funding_percentage": funding,
+                    "summary": r.get("summary") or "",
                 }
             )
 
@@ -365,39 +368,8 @@ def _process_pdf_keys(
         doc_type=detected_type,
     )
 
-    # --- OpenAI descriptions (optional) ---
-    desc_cache: dict = {}
-    if OPENAI_API_KEY:
-        n = 0
-        for r in rows:
-            if n >= OPENAI_MAX_TOPICS:
-                break
-
-            if context is not None:
-                remaining_ms = context.get_remaining_time_in_millis()
-                if remaining_ms is not None and remaining_ms < 8000:
-                    print(f"Stopping OpenAI: low remaining time {remaining_ms}ms")
-                    break
-
-            body = (r.get("topic_body") or "").strip()
-            if not body:
-                continue
-
-            cur = (r.get("topic_description") or "").strip()
-            if len(cur) >= 80:
-                continue
-
-            desc = _openai_topic_description(
-                topic_id=r.get("topic_id") or "",
-                topic_title=r.get("topic_title") or "",
-                body_text=body,
-                cache=desc_cache,
-            )
-            if desc:
-                r["topic_description"] = desc
-                n += 1
-            else:
-                r["topic_description"] = ""
+    # --- OpenAI summaries (optional) ---
+    _summarize_topics(rows, DOC_HORIZON, context=context)
 
     for r in rows:
         if r.get("topic_description") is None:
@@ -430,6 +402,7 @@ def _process_pdf_keys(
                 "topic_id": r.get("topic_id"),
                 "topic_url": _topic_url(r.get("topic_id")),
                 "topic_title": r.get("topic_title") or "",
+                "summary": r.get("summary") or "",
                 "budget_per_project_min_eur_m": r.get("budget_per_project_min_eur_m"),
                 "opening_date": r.get("opening_date"),
                 "deadline_date": r.get("deadline_date"),
@@ -489,33 +462,28 @@ def detect_document_family(text: str, expected_type: Optional[str] = None) -> st
     edf_ids = re.findall(r"\bedf-\d{4}-[a-z]{2,}", text, flags=re.IGNORECASE)
     horizon_ids = re.findall(r"\bhorizon-[a-z0-9]+-\d{4}-", text, flags=re.IGNORECASE)
 
-    edf_score = 0
-    horizon_score = 0
+    edf_strong = "european defence fund" in low or len(edf_ids) >= 2
+    horizon_strong = (
+        "horizon europe" in low
+        or "work programme" in low
+        or bool(horizon_ids)
+    )
 
-    if "european defence fund" in low:
-        edf_score += 6
-    if len(edf_ids) >= 2:
-        edf_score += 4
-    elif len(edf_ids) == 1:
-        edf_score += 2
+    edf_score = (2 * len(edf_ids)) + (5 if edf_strong else 0)
+    horizon_score = (2 * len(horizon_ids)) + (5 if horizon_strong else 0)
 
-    if "horizon europe" in low:
-        horizon_score += 6
-    if "work programme" in low:
-        horizon_score += 3
-    if len(horizon_ids) >= 1:
-        horizon_score += 4 + max(0, len(horizon_ids) - 1)
+    if edf_strong and not horizon_strong:
+        return DOC_EDF
+    if horizon_strong and not edf_strong:
+        return DOC_HORIZON
 
     if edf_score == 0 and horizon_score == 0:
         return "unknown"
 
-    if edf_score == horizon_score:
+    if abs(edf_score - horizon_score) <= 1:
         if expected in {DOC_HORIZON, DOC_EDF}:
             return expected
         return "unknown"
-
-    if abs(edf_score - horizon_score) <= 1 and expected in {DOC_HORIZON, DOC_EDF}:
-        return expected
 
     return DOC_EDF if edf_score > horizon_score else DOC_HORIZON
 
@@ -533,6 +501,7 @@ def _write_horizon_xlsx(rows, xlsx_path: str):
         "call_id",
         "topic_id",
         "topic_title",
+        "summary",
         "topic_description",
         "action_type",
         "funding_percentage",
@@ -558,6 +527,19 @@ def _write_horizon_xlsx(rows, xlsx_path: str):
             cell.hyperlink = url
             cell.style = "Hyperlink"
 
+    # Wrap summary and description cells
+    wrap_align = Alignment(wrap_text=True, vertical="top")
+    summary_col_idx = headers.index("summary") + 1
+    summary_col_letter = ws.cell(row=1, column=summary_col_idx).column_letter
+    ws.column_dimensions[summary_col_letter].width = 80
+    desc_col_idx = headers.index("topic_description") + 1
+    desc_col_letter = ws.cell(row=1, column=desc_col_idx).column_letter
+    ws.column_dimensions[desc_col_letter].width = 100
+
+    for row_idx in range(2, ws.max_row + 1):
+        ws.cell(row=row_idx, column=summary_col_idx).alignment = wrap_align
+        ws.cell(row=row_idx, column=desc_col_idx).alignment = wrap_align
+
     wb.save(xlsx_path)
 
 
@@ -574,6 +556,7 @@ def _write_edf_xlsx(rows, xlsx_path: str):
         "topic_id",
         "title",
         "topic_title",
+        "summary",
         "section_no",
         "type_of_action",
         "funding_percentage",
@@ -596,9 +579,13 @@ def _write_edf_xlsx(rows, xlsx_path: str):
     desc_col_idx = headers.index("topic_description_verbatim") + 1
     desc_col_letter = ws.cell(row=1, column=desc_col_idx).column_letter
     ws.column_dimensions[desc_col_letter].width = 100
+    summary_col_idx = headers.index("summary") + 1
+    summary_col_letter = ws.cell(row=1, column=summary_col_idx).column_letter
+    ws.column_dimensions[summary_col_letter].width = 80
 
     for row_idx in range(2, ws.max_row + 1):
         ws.cell(row=row_idx, column=desc_col_idx).alignment = wrap_align
+        ws.cell(row=row_idx, column=summary_col_idx).alignment = wrap_align
 
     wb.save(xlsx_path)
 
@@ -778,10 +765,8 @@ def filter_rows(
     doc_type: str = DOC_HORIZON,
 ):
     allowed = None
-    if call_types:
+    if call_types is not None:
         allowed = {str(t).strip().lower() for t in call_types if str(t).strip()}
-        if not allowed:
-            allowed = None
 
     filtered = []
     for r in rows:
@@ -865,9 +850,9 @@ def _extract_output_text(resp_json: dict) -> str:
     return "\n".join(p.strip() for p in parts if p and p.strip()).strip()
 
 
-def _openai_topic_description(topic_id: str, topic_title: str, body_text: str, cache: dict) -> str:
+def _openai_topic_summary(topic_id: str, topic_title: str, body_text: str, cache: dict) -> str:
     """
-    Return a short English summary (max 2 sentences) using ONLY the provided text.
+    Return a concise English summary (max 2 short sentences, max 240 chars) using ONLY the provided text.
     """
     if not OPENAI_API_KEY:
         return ""
@@ -883,9 +868,9 @@ def _openai_topic_description(topic_id: str, topic_title: str, body_text: str, c
         return cache[clean_body]
 
     instructions = (
-        "Summarize only what is present in the provided text.\n"
-        "Do not add requirements, dates, numbers, or claims not present.\n"
-        "Return 2 short sentences maximum in English using simple language (under 240 characters)."
+        "English only. Summarize using only the provided text. "
+        "Do not invent details. "
+        "Return up to 2 short sentences, maximum 240 characters."
     )
 
     user_input = (
@@ -929,6 +914,50 @@ def _openai_topic_description(topic_id: str, topic_title: str, body_text: str, c
     except Exception:
         cache[clean_body] = ""
         return ""
+
+
+def _summarize_topics(rows: List[Dict], doc_type: str, context=None):
+    cache: dict = {}
+    if not rows:
+        return
+
+    if not OPENAI_API_KEY:
+        for r in rows:
+            r["summary"] = r.get("summary") or ""
+        return
+
+    n = 0
+    for r in rows:
+        if n >= OPENAI_MAX_TOPICS:
+            break
+
+        if context is not None:
+            remaining_ms = context.get_remaining_time_in_millis()
+            if remaining_ms is not None and remaining_ms < 8000:
+                print(f"Stopping OpenAI summaries: low remaining time {remaining_ms}ms")
+                break
+
+        if doc_type == DOC_HORIZON:
+            source = (r.get("topic_body") or "").strip()
+        else:
+            source = (r.get("topic_description_verbatim") or r.get("topic_title") or "").strip()
+
+        if not source:
+            r["summary"] = r.get("summary") or ""
+            continue
+
+        summary = _openai_topic_summary(
+            topic_id=r.get("topic_id") or r.get("call_id") or "",
+            topic_title=r.get("topic_title") or r.get("title") or "",
+            body_text=source,
+            cache=cache,
+        )
+        r["summary"] = summary or ""
+        n += 1
+
+    for r in rows:
+        if "summary" not in r or r["summary"] is None:
+            r["summary"] = ""
 
 
 # HTML served from ui.html loaded at startup

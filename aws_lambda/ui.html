@@ -184,7 +184,10 @@
     .btn.success{ background: linear-gradient(90deg, var(--good), #2a6f4c); color:#fff; }
     .btn:disabled{ opacity:.6; cursor:not-allowed; }
     input[type=file]{ position:absolute; inset:0; opacity:0; pointer-events:none; }
-    .progress{ margin-top: 12px; height: 10px; border-radius: 999px; background: #e6dfd3; border:1px solid #d9d2c7; overflow:hidden; }
+    .progresswrap{ margin-top: 12px; display:flex; flex-direction:column; gap:6px; }
+    .progressline{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap: wrap; color: var(--muted); font-size: 13px; font-weight:600; }
+    .progressvalue{ color: #1f2c1f; font-weight: 800; }
+    .progress{ height: 10px; border-radius: 999px; background: #e6dfd3; border:1px solid #d9d2c7; overflow:hidden; }
     .bar{ width:0%; height:100%; border-radius:999px; background: linear-gradient(90deg, #88a17f, var(--accent)); transition: width .2s ease; }
     .bar.indet{ width:100%; animation: indet 1.2s infinite linear; transform-origin:left; }
     @keyframes indet{ 0%{ transform: translateX(-100%);} 100%{ transform: translateX(100%);} }
@@ -221,6 +224,10 @@
     .desc-summary{ display:flex; gap: 8px; flex-wrap: wrap; align-items:center; }
     .desc-preview{ color: var(--muted2); font-size: 12px; font-weight: 500; }
     .desc-body{ white-space: pre-wrap; line-height:1.35; font-size: 13px; color:#2f241c; }
+    .summary-block{ display:flex; flex-direction:column; gap:4px; }
+    .summary-text{ color: var(--muted2); font-size: 13px; line-height:1.45; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient: vertical; overflow:hidden; }
+    .summary-text.expanded{ -webkit-line-clamp: unset; max-height:none; }
+    .summary-toggle{ background:none; border:none; color: var(--accent-strong); font-weight:700; font-size:12px; cursor:pointer; padding:0; align-self:flex-start; }
     .modal-overlay{
       position: fixed;
       inset: 0;
@@ -323,8 +330,14 @@
             <button class="btn primary" id="go" disabled>Generate Excel</button>
           </div>
         </div>
-        <div class="progress" aria-label="progress">
-          <div class="bar" id="bar"></div>
+        <div class="progresswrap">
+          <div class="progressline">
+            <span>Progress</span>
+            <span class="progressvalue" id="progressText">0%</span>
+          </div>
+          <div class="progress" aria-label="progress">
+            <div class="bar" id="bar"></div>
+          </div>
         </div>
         <div class="stepper" aria-label="steps">
           <div class="step" id="s1"><span class="badge">1</span><span>Presign URL</span></div>
@@ -420,6 +433,9 @@
       },
       busy: false,
       abort: null,
+      uploadXhrs: [],
+      processTicker: null,
+      progressPct: 0,
     };
 
     function fmtBytes(bytes){
@@ -531,9 +547,23 @@
       $("errorModal").style.display = "flex";
     }
 
-    function barNone(){ $("bar").classList.remove("indet"); $("bar").style.width = "0%"; }
-    function barIndeterminate(){ $("bar").classList.add("indet"); }
-    function barSet(pct){ $("bar").classList.remove("indet"); $("bar").style.width = pct + "%"; }
+    function _updateBarWidth(){
+      const bar = $("bar");
+      if(bar.classList.contains("indet")){
+        bar.style.width = "100%";
+      } else {
+        bar.style.width = `${state.progressPct}%`;
+      }
+    }
+    function setProgress(pct){
+      const val = Math.max(0, Math.min(100, Number(pct) || 0));
+      state.progressPct = val;
+      $("progressText").textContent = `${Math.round(val)}%`;
+      _updateBarWidth();
+    }
+    function barNone(){ $("bar").classList.remove("indet"); setProgress(0); }
+    function barIndeterminate(){ $("bar").classList.add("indet"); _updateBarWidth(); }
+    function barDeterminate(){ $("bar").classList.remove("indet"); _updateBarWidth(); }
 
     function setSteps(activeIdx, doneBefore=false){
       const steps = [$("s1"),$("s2"),$("s3"),$("s4")];
@@ -544,6 +574,27 @@
       });
     }
     function clearSteps(){ [$("s1"),$("s2"),$("s3"),$("s4")].forEach(el => el.classList.remove("active","done")); }
+
+    function stopProcessDrift(){
+      if(state.processTicker){
+        clearInterval(state.processTicker);
+        state.processTicker = null;
+      }
+    }
+    function startProcessDrift(start=60, end=85){
+      stopProcessDrift();
+      barIndeterminate();
+      if(state.progressPct < start){
+        setProgress(start);
+      }
+      state.processTicker = setInterval(() => {
+        if(state.progressPct < end){
+          setProgress(state.progressPct + 1);
+        } else {
+          stopProcessDrift();
+        }
+      }, 1200);
+    }
 
     function setBusy(busy){
       state.busy = busy;
@@ -562,6 +613,10 @@
       state.results[tab] = { rows: [], downloadUrl: null, rowsCount: 0 };
       $("downloadBtn").style.display = "none";
       $("kpi").style.display = "none";
+      stopProcessDrift();
+      state.uploadXhrs.forEach(x => { try{ x.abort(); }catch(_e){} });
+      state.uploadXhrs = [];
+      barNone();
       renderFileList();
       setBusy(false);
       if(files.length){
@@ -736,6 +791,42 @@
         title.className = "subtitle"; title.textContent = r.topic_title || "—";
         card.appendChild(title);
 
+        if(r.summary){
+          const summaryWrap = document.createElement("div");
+          summaryWrap.className = "summary-block";
+          const label = document.createElement("div");
+          label.className = "label";
+          label.textContent = "Summary";
+          const summaryText = document.createElement("div");
+          summaryText.className = "summary-text";
+          summaryText.textContent = r.summary;
+          const toggle = document.createElement("button");
+          toggle.type = "button";
+          toggle.className = "summary-toggle";
+          toggle.textContent = "Read more";
+          toggle.style.display = "none";
+
+          requestAnimationFrame(() => {
+            if(summaryText.scrollHeight > summaryText.clientHeight + 2){
+              toggle.style.display = "inline-flex";
+            }
+          });
+
+          toggle.onclick = () => {
+            const expanded = summaryText.classList.toggle("expanded");
+            summaryText.classList.toggle("summary-text", true);
+            toggle.textContent = expanded ? "Show less" : "Read more";
+            if(!expanded){
+              summaryText.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }
+          };
+
+          summaryWrap.appendChild(label);
+          summaryWrap.appendChild(summaryText);
+          summaryWrap.appendChild(toggle);
+          card.appendChild(summaryWrap);
+        }
+
         const grid = document.createElement("div");
         grid.className = "row-grid";
         const fields = [
@@ -775,6 +866,70 @@
       return data;
     }
 
+    function uploadWithProgress(files, uploads){
+      return new Promise((resolve, reject) => {
+        if(!files.length || !uploads.length){
+          resolve(); return;
+        }
+
+        let settled = false;
+        const finish = (fn) => { if(settled) return; settled = true; fn(); };
+
+        const totalBytes = files.reduce((sum, f) => sum + (f.size || 0), 0);
+        const perFileLoaded = new Map();
+        const xhrs = [];
+        state.uploadXhrs = xhrs;
+
+        const updateProgress = () => {
+          let uploaded = 0;
+          perFileLoaded.forEach(v => { uploaded += v; });
+          const base = 10;
+          const range = 50;
+          const pct = totalBytes
+            ? base + (uploaded / totalBytes) * range
+            : base + (perFileLoaded.size / uploads.length) * range;
+          barDeterminate();
+          setProgress(Math.min(60, pct));
+        };
+
+        uploads.forEach((up, idx) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("PUT", up.upload_url);
+          xhr.upload.onprogress = (evt) => {
+            if(evt.lengthComputable){
+              perFileLoaded.set(idx, evt.loaded);
+              updateProgress();
+            }
+          };
+          xhr.onload = () => {
+            perFileLoaded.set(idx, files[idx]?.size || perFileLoaded.get(idx) || 0);
+            setStatus(`2/4 • Uploading ${perFileLoaded.size}/${uploads.length}`, files[idx]?.name || "");
+            updateProgress();
+            const ok = xhr.status >= 200 && xhr.status < 300;
+            if(!ok){
+              finish(() => reject(new Error("Upload failed: HTTP " + xhr.status)));
+              return;
+            }
+            if(perFileLoaded.size === uploads.length){
+              finish(() => {
+                setProgress(60);
+                resolve();
+              });
+            }
+          };
+          xhr.onerror = () => finish(() => reject(new Error("Upload failed: network error")));
+          xhr.onabort = () => finish(() => reject(new DOMException("Upload aborted", "AbortError")));
+
+          if(state.abort && state.abort.signal){
+            state.abort.signal.addEventListener("abort", () => xhr.abort(), { once: true });
+          }
+
+          xhr.send(files[idx]);
+          xhrs.push(xhr);
+        });
+      });
+    }
+
     $("go").onclick = async () => {
       const tab = state.activeTab;
       const files = state.tabs[tab].files;
@@ -783,11 +938,14 @@
         return;
       }
       state.abort = new AbortController();
-      setBusy(true); resetResult(tab); barIndeterminate();
+      stopProcessDrift();
+      state.uploadXhrs = [];
+      setBusy(true); resetResult(tab); barDeterminate(); setProgress(0);
       try{
         // Presign
         setSteps(0, false);
         setStatus("1/4 • Presign URL", "Requesting S3 upload links.");
+        setProgress(5);
         const pres = await fetchJson(`/presign?count=${files.length}`, { signal: state.abort.signal });
         const uploads = pres.uploads || (pres.upload_url ? [{ upload_url: pres.upload_url, pdf_key: pres.pdf_key }] : []);
         if(uploads.length !== files.length){
@@ -796,14 +954,14 @@
 
         // Upload
         setSteps(1, true);
-        for(let i=0; i<uploads.length; i++){
-          setStatus(`2/4 • Uploading ${i+1}/${uploads.length}`, files[i].name || "");
-          const put = await fetch(uploads[i].upload_url, { method:"PUT", body: files[i], signal: state.abort.signal });
-          if(!put.ok) throw new Error("Upload failed: HTTP " + put.status);
-        }
+        setProgress(10);
+        setStatus(`2/4 • Uploading 1/${uploads.length}`, files[0].name || "");
+        await uploadWithProgress(files, uploads);
+        setStatus(`2/4 • Uploading ${uploads.length}/${uploads.length}`, "Uploads complete.");
 
         // Process
         setSteps(2, true);
+        startProcessDrift(60, 85);
         setStatus("3/4 • Parsing + Excel…", "Detecting document family, applying filters, building workbook.");
         const payload = {
           pdf_keys: uploads.map(u => u.pdf_key),
@@ -840,6 +998,9 @@
         }
 
         // Download link
+        stopProcessDrift();
+        barDeterminate();
+        setProgress(90);
         setSteps(3, true);
         setStatus("4/4 • Preparing download…", "Creating a temporary Excel link.");
         const dl = await fetchJson("/download", {
@@ -850,13 +1011,14 @@
         });
 
         state.results[tab] = { rows: proc.rows || [], downloadUrl: dl.download_url, rowsCount: proc.rows_count || 0 };
-        barSet(100);
+        setProgress(100);
         [$("s1"),$("s2"),$("s3"),$("s4")].forEach(el => { el.classList.remove("active"); el.classList.add("done"); });
         renderResults(tab);
         setStatus("Completed ✅", "Download available on button click. No auto-downloads.");
         const container = tab === "horizon" ? $("results-horizon") : $("results-edf");
         container.scrollIntoView({ behavior: "smooth", block: "start" });
       }catch(e){
+        stopProcessDrift();
         barNone(); clearSteps();
         const msg = e?.message || String(e);
         const detail = e?.status ? `HTTP ${e.status}. ` : "";
@@ -871,25 +1033,31 @@
         let title = "Something went wrong";
         if(lowerMsg.includes("looks like edf")){
           title = "Wrong tab selected";
-          human = "This PDF looks like an EDF document. Switch to the EDF tab and try again.";
+          human = "Wrong tab selected. This PDF looks like an EDF document. Switch to EDF tab and try again.";
         } else if(lowerMsg.includes("looks like horizon")){
           title = "Wrong tab selected";
-          human = "This PDF looks like a Horizon document. Switch to the Horizon tab and try again.";
+          human = "Wrong tab selected. This PDF looks like a Horizon document. Switch to Horizon tab and try again.";
         }
         showErrorModal(human, detail + msg, title);
         setStatus("Error.", "Please check the message and try again.", true);
       }finally{
         setBusy(false);
         state.abort = null;
+        state.uploadXhrs = [];
+        stopProcessDrift();
       }
     };
 
     $("cancel").onclick = () => {
+      stopProcessDrift();
       if(state.abort){
         state.abort.abort();
       }
+      state.uploadXhrs.forEach(x => { try{ x.abort(); }catch(_e){} });
+      state.uploadXhrs = [];
       clearSteps();
       barNone();
+      resetResult(state.activeTab);
       setBusy(false);
       setStatus("Cancelled.", "The operation was stopped on this device.");
     };
