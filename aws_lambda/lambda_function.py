@@ -10,7 +10,7 @@ import boto3
 import urllib.request
 import urllib.error
 import traceback
-from datetime import date
+from datetime import date, datetime
 from pypdf import PdfReader
 from openpyxl import Workbook
 from openpyxl.styles import Alignment
@@ -49,7 +49,7 @@ def _require_bucket():
 # --- OpenAI (optional) ---
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")  # keep secret in Lambda env vars
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
-OPENAI_MAX_TOPICS = int(os.environ.get("OPENAI_MAX_TOPICS", "25"))
+OPENAI_MAX_TOPICS = int(os.environ.get("OPENAI_MAX_TOPICS", "0"))  # 0 = no cap
 OPENAI_BODY_MAX_CHARS = int(os.environ.get("OPENAI_BODY_MAX_CHARS", "6000"))
 DEFAULT_MIN_BUDGET_M = float(os.environ.get("DEFAULT_MIN_BUDGET_M", "0"))
 DOC_HORIZON = "horizon"
@@ -100,9 +100,29 @@ EDF_CALL_FAMILY_LABELS = {
 
 try:
     with open(UI_PATH, "r", encoding="utf-8") as f:
-        HTML = f.read()
+        HTML_TEMPLATE = f.read()
 except FileNotFoundError:
-    HTML = "<html><body><p>UI not found</p></body></html>"
+    HTML_TEMPLATE = "<html><body><p>UI not found</p></body></html>"
+
+
+def _deploy_version() -> str:
+    version = (
+        os.environ.get("APP_VERSION")
+        or os.environ.get("DEPLOY_TS")
+        or ""
+    )
+    version = (version or "").strip()
+    if not version:
+        version = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    return version
+
+
+def _render_html() -> str:
+    version = _deploy_version().replace("\\", "\\\\").replace('"', '\\"')
+    return HTML_TEMPLATE.replace("__APP_VERSION__", version)
+
+
+HTML = _render_html()
 
 
 def _safe_base_name(file_name: str) -> str:
@@ -124,6 +144,37 @@ def _topic_url(topic_id: str) -> str:
         if tid
         else ""
         )
+
+
+def _derive_stage_from_topic_id(topic_id: Optional[str], current: Optional[str] = None) -> Optional[str]:
+    if current:
+        return current
+    tid = (topic_id or "").lower()
+    if not tid:
+        return None
+    if "two-stage" in tid or "two stage" in tid:
+        return "two-stage"
+    return "single"
+
+
+def _derive_call_round_from_topic_id(topic_id: Optional[str]) -> Optional[str]:
+    if not topic_id:
+        return None
+    m = re.search(r"HORIZON-[A-Z0-9]+-(\d{4})-(\d{2})", topic_id)
+    if not m:
+        return None
+    return f"{m.group(1)}-{m.group(2)}"
+
+
+def _extract_trl_from_text(text: Optional[str]) -> Optional[str]:
+    if not text:
+        return None
+    m = re.search(r"TRL\s*(\d)(?:\s*(?:[-–]|to)\s*(\d))?", str(text), flags=re.IGNORECASE)
+    if not m:
+        return None
+    start = m.group(1)
+    end = m.group(2)
+    return f"{start}-{end}" if end else start
 
 
 def _edf_call_family_from_id(call_id: Optional[str]) -> Optional[str]:
@@ -337,50 +388,51 @@ def _process_pdf_keys(
             doc_type=detected_type,
         )
 
-        _summarize_topics(rows, DOC_EDF, context=context)
+    summary_notice = _summarize_topics(rows, DOC_EDF, context=context)
 
-        write_xlsx(rows + [r for r in all_rows if r.get("record_level") == "CALL"], local_xlsx, DOC_EDF)
+    write_xlsx(rows + [r for r in all_rows if r.get("record_level") == "CALL"], local_xlsx, DOC_EDF)
 
-        safe_base = _safe_base_name(original_names[0] if original_names else pdf_keys[0])
-        if len(pdf_keys) > 1:
-            safe_base = f"{safe_base}-combined"
-        out_key = f"outputs/{uuid.uuid4()}/{safe_base}.xlsx"
-        s3.upload_file(local_xlsx, BUCKET, out_key)
+    safe_base = _safe_base_name(original_names[0] if original_names else pdf_keys[0])
+    if len(pdf_keys) > 1:
+        safe_base = f"{safe_base}-combined"
+    out_key = f"outputs/{uuid.uuid4()}/{safe_base}.xlsx"
+    s3.upload_file(local_xlsx, BUCKET, out_key)
 
-        display_rows = []
-        for r in rows:
-            call_type = _row_call_type(r, DOC_EDF)
-            funding = _funding_percentage(r, DOC_EDF)
-            if call_type and call_type not in call_types_meta:
-                call_types_meta[call_type] = funding
+    display_rows = []
+    for r in rows:
+        call_type = _row_call_type(r, DOC_EDF)
+        funding = _funding_percentage(r, DOC_EDF)
+        if call_type and call_type not in call_types_meta:
+            call_types_meta[call_type] = funding
 
-            display_rows.append(
-                {
-                    "record_level": r.get("record_level"),
-                    "call_id": r.get("call_id"),
-                    "topic_id": r.get("topic_id"),
-                    "topic_id": r.get("topic_id"),
-                    "topic_url": _topic_url(r.get("topic_id")),
-                    "topic_title": r.get("topic_title"),
-                    "title": r.get("title"),
-                    "section_no": r.get("section_no"),
-                    "budget_per_project_min_eur_m": r.get("budget_per_project_min_eur_m"),
-                    "opening_date": r.get("opening_date"),
-                    "deadline_date": r.get("deadline_date"),
-                    "call_type": call_type,
-                    "funding_percentage": funding,
-                    "summary": r.get("summary") or "",
-                }
-            )
+        display_rows.append(
+            {
+                "record_level": r.get("record_level"),
+                "call_id": r.get("call_id"),
+                "topic_id": r.get("topic_id"),
+                "topic_id": r.get("topic_id"),
+                "topic_url": _topic_url(r.get("topic_id")),
+                "topic_title": r.get("topic_title"),
+                "title": r.get("title"),
+                "section_no": r.get("section_no"),
+                "budget_per_project_min_eur_m": r.get("budget_per_project_min_eur_m"),
+                "opening_date": r.get("opening_date"),
+                "deadline_date": r.get("deadline_date"),
+                "call_type": call_type,
+                "funding_percentage": funding,
+                "summary": r.get("summary") or "",
+            }
+        )
 
-        return {
-            "status": "ok",
-            "excel_key": out_key,
-            "rows": display_rows,
-            "rows_count": len(rows),
-            "doc_type": detected_type,
-            "call_types": [{"name": k, "funding_percentage": v} for k, v in call_types_meta.items()],
-        }
+    return {
+        "status": "ok",
+        "excel_key": out_key,
+        "rows": display_rows,
+        "rows_count": len(rows),
+        "doc_type": detected_type,
+        "call_types": [{"name": k, "funding_percentage": v} for k, v in call_types_meta.items()],
+        "summary_notice": summary_notice,
+    }
 
     # Horizon flow
     call_types_meta = {}
@@ -402,12 +454,24 @@ def _process_pdf_keys(
         doc_type=detected_type,
     )
 
+    for r in rows:
+        if not r.get("stage"):
+            r["stage"] = _derive_stage_from_topic_id(r.get("topic_id"))
+        if not r.get("call_round"):
+            r["call_round"] = _derive_call_round_from_topic_id(r.get("topic_id"))
+        if not r.get("trl"):
+            r["trl"] = _extract_trl_from_text(r.get("topic_body") or r.get("topic_description"))
+        if not r.get("topic_description"):
+            body = (r.get("topic_body") or "").strip()
+            if body:
+                r["topic_description"] = body
+
     # --- OpenAI summaries (optional) ---
-    _summarize_topics(rows, DOC_HORIZON, context=context)
+    summary_notice = _summarize_topics(rows, DOC_HORIZON, context=context)
 
     for r in rows:
-        if r.get("topic_description") is None:
-            r["topic_description"] = ""
+        if not r.get("topic_description"):
+            r["topic_description"] = r.get("summary") or ""
 
         if r.get("budget_per_project_min_eur_m") is None:
             derived_budget = _compute_budget_per_project_m(r)
@@ -437,6 +501,10 @@ def _process_pdf_keys(
                 "topic_url": _topic_url(r.get("topic_id")),
                 "topic_title": r.get("topic_title") or "",
                 "summary": r.get("summary") or "",
+                "topic_description": r.get("topic_description") or r.get("summary") or "",
+                "stage": r.get("stage"),
+                "call_round": r.get("call_round"),
+                "trl": r.get("trl"),
                 "budget_per_project_min_eur_m": r.get("budget_per_project_min_eur_m"),
                 "opening_date": r.get("opening_date"),
                 "deadline_date": r.get("deadline_date"),
@@ -452,6 +520,7 @@ def _process_pdf_keys(
         "rows_count": len(rows),
         "doc_type": detected_type,
         "call_types": [{"name": k, "funding_percentage": v} for k, v in call_types_meta.items()],
+        "summary_notice": summary_notice,
     }
 def extract_text(pdf_path: str) -> str:
     """
@@ -950,25 +1019,61 @@ def _openai_topic_summary(topic_id: str, topic_title: str, body_text: str, cache
         return ""
 
 
+def _fallback_summary_from_row(row: Dict, doc_type: str) -> str:
+    """
+    Create a short, deterministic summary when OpenAI is unavailable or skipped.
+    """
+    def _clean(val: str) -> str:
+        return re.sub(r"\s+", " ", str(val or "").strip())
+
+    source_fields = []
+    if doc_type == DOC_HORIZON:
+        source_fields = [
+            row.get("topic_description") or "",
+            row.get("topic_body") or "",
+            row.get("topic_title") or "",
+        ]
+    else:
+        source_fields = [
+            row.get("topic_description_verbatim") or "",
+            row.get("topic_title") or row.get("title") or "",
+        ]
+
+    blob = " ".join([_clean(x) for x in source_fields if x]).strip()
+    if not blob:
+        return ""
+
+    sentences = re.split(r"(?<=[.!?])\s+", blob)
+    summary = " ".join(sentences[:2]).strip()
+    if len(summary) > 240:
+        summary = summary[:240].rstrip()
+    return summary
+
+
 def _summarize_topics(rows: List[Dict], doc_type: str, context=None):
     cache: dict = {}
+    notice: Optional[str] = None
     if not rows:
-        return
+        return notice
 
     if not OPENAI_API_KEY:
         for r in rows:
-            r["summary"] = r.get("summary") or ""
-        return
+            r["summary"] = r.get("summary") or _fallback_summary_from_row(r, doc_type)
+        notice = "AI summary disabled: OPENAI_API_KEY not set"
+        return notice
+
+    max_topics = OPENAI_MAX_TOPICS if OPENAI_MAX_TOPICS > 0 else len(rows)
 
     n = 0
     for r in rows:
-        if n >= OPENAI_MAX_TOPICS:
+        if n >= max_topics:
+            notice = f"Summaries limited to first {max_topics} topics (OPENAI_MAX_TOPICS)."
             break
 
         if context is not None:
             remaining_ms = context.get_remaining_time_in_millis()
             if remaining_ms is not None and remaining_ms < 8000:
-                print(f"Stopping OpenAI summaries: low remaining time {remaining_ms}ms")
+                notice = f"Summaries truncated: low remaining time ({remaining_ms}ms)."
                 break
 
         if doc_type == DOC_HORIZON:
@@ -986,12 +1091,14 @@ def _summarize_topics(rows: List[Dict], doc_type: str, context=None):
             body_text=source,
             cache=cache,
         )
-        r["summary"] = summary or ""
+        r["summary"] = summary or _fallback_summary_from_row(r, doc_type)
         n += 1
 
     for r in rows:
         if "summary" not in r or r["summary"] is None:
-            r["summary"] = ""
+            r["summary"] = _fallback_summary_from_row(r, doc_type)
+
+    return notice
 
 
 # HTML served from ui.html loaded at startup

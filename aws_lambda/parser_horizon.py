@@ -74,7 +74,7 @@ def _normalize_title_text(s: str) -> str:
     s = s.replace("\u00ad", "")
 
     # Join hyphenated line breaks: "Crimeprevention" happens when a newline is dropped; preserve the split
-    s = re.sub(r"(\w)-\s*\n\s*(\w)", r"\1 \2", s)
+    s = re.sub(r"(\w)-\s*\n\s*(\w)", r"\1-\2", s)
     # If newline without hyphen splits words, reintroduce space
     s = re.sub(r"(\w)\n(\w)", r"\1 \2", s)
 
@@ -83,6 +83,20 @@ def _normalize_title_text(s: str) -> str:
 
     # Remove stray spaces around hyphens that may remain
     s = _fix_inline_hyphen_spacing(s)
+
+    # Targeted fixes for glued words seen in PDFs
+    s = re.sub(r"(?i)\btopicon\b", "topic on", s)
+    s = re.sub(r"(?i)\bimprovingcapabilities\b", "Improving capabilities", s)
+
+    def _split_glued(match: re.Match) -> str:
+        left = match.group(1)
+        right = match.group(2)
+        suffixes = ("ing", "ed", "tion", "sion", "ment", "ness", "ity", "able", "ible", "al", "ic")
+        if any(left.lower().endswith(suf) for suf in suffixes):
+            return f"{left} {right}"
+        return match.group(0)
+
+    s = re.sub(r"(?i)\b([a-z]{4,})(on|in|of|for|with|and|to|by|from|at)\b", _split_glued, s)
 
     # Reintroduce spaces between camelCase-like joins (e.g., CrimePrevention)
     s = re.sub(r"([a-z])([A-Z])", r"\1 \2", s)
@@ -142,6 +156,39 @@ def _parse_cluster_line(ln: str) -> Tuple[Optional[str], Optional[str], Optional
 def _derive_call_id_from_topic(topic_id: str) -> Optional[str]:
     m = re.match(r"^(HORIZON-[A-Z0-9]+-\d{4}-\d{2})-", topic_id)
     return m.group(1) if m else None
+
+
+def _derive_call_round(topic_id: Optional[str]) -> Optional[str]:
+    if not topic_id:
+        return None
+    m = re.search(r"HORIZON-[A-Z0-9]+-(\d{4})-(\d{2})", topic_id)
+    if not m:
+        return None
+    return f"{m.group(1)}-{m.group(2)}"
+
+
+def _derive_stage(topic_id: Optional[str], current_stage: Optional[str]) -> Optional[str]:
+    if current_stage:
+        return current_stage
+    tid = (topic_id or "").lower()
+    if "two-stage" in tid or "two stage" in tid:
+        return "two-stage"
+    if tid:
+        return "single"
+    return None
+
+
+def _extract_trl(text: Optional[str]) -> Optional[str]:
+    if not text:
+        return None
+    m = re.search(r"TRL\s*(\d)(?:\s*(?:[-–]|to)\s*(\d))?", text, flags=re.IGNORECASE)
+    if not m:
+        return None
+    start = m.group(1)
+    end = m.group(2)
+    if end:
+        return f"{start}-{end}"
+    return start
 
 
 def _merge_split_identifier_lines(lines: List[str]) -> List[str]:
@@ -398,6 +445,10 @@ def parse_calls(text: str) -> List[Dict]:
             "expected outcomes",
             "expected impact",
             "deadline(s)",
+            "annex",
+            "eligibility conditions",
+            "the conditions are described in general",
+            "conditions are described in general",
         )
         low = ln.lower()
         return any(k in low for k in stop_keywords)
@@ -415,19 +466,22 @@ def parse_calls(text: str) -> List[Dict]:
         title_clean = _fix_inline_hyphen_spacing(title_clean)
 
         page = current_page or pending_page or title_page or current_cluster_page
+        topic_desc = "\n".join(pending_description_parts).strip() or None
+        trl_val = _extract_trl("\n".join(filter(None, [pending_body, topic_desc])))
 
         if not current_call_id:
             current_call_id = _derive_call_id_from_topic(pending_topic_id)
 
         row = {
             "cluster": current_cluster,
-            "stage": current_stage,
-            "call_round": current_call_round,
+            "stage": _derive_stage(pending_topic_id, current_stage),
+            "call_round": current_call_round or _derive_call_round(pending_topic_id),
             "page": page,
 
             "call_id": current_call_id,
             "topic_id": pending_topic_id,
             "topic_title": title_clean,
+            "topic_description": topic_desc,
 
             "action_type": pending_action_type,
             "opening_date": current_opening,
@@ -438,7 +492,7 @@ def parse_calls(text: str) -> List[Dict]:
             "budget_per_project_min_eur_m": pending_per_min,
             "budget_per_project_max_eur_m": pending_per_max,
 
-            "trl": None,
+            "trl": trl_val,
 
             "topic_body": pending_body,
         }

@@ -38,7 +38,7 @@
     }
     .topbar{
       display:flex;
-      align-items:center;
+      align-items:flex-start;
       gap:14px;
       background: rgba(255,255,255,0.94);
       border-radius: calc(var(--radius) + 4px);
@@ -56,8 +56,27 @@
       border: 1px solid rgba(255,255,255,.8);
       flex-shrink:0;
     }
+    .topbar-header{
+      flex:1 1 auto;
+      display:flex;
+      gap: 12px;
+      justify-content: space-between;
+      align-items:flex-start;
+      flex-wrap: wrap;
+    }
     .brand h1{ margin:0; font-size: 18px; }
     .brand p{ margin:4px 0 0; color: var(--muted); font-size: 13px; line-height:1.5; }
+    .version-tag{
+      margin-left:auto;
+      background:#f5f0e8;
+      border:1px solid #e1d6c7;
+      color:#2f241c;
+      border-radius: 10px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
     .card{
       margin-top: 18px;
       background: var(--card);
@@ -263,6 +282,16 @@
     .modal-actions{ display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
     .modal-details-toggle{ background: none; border: none; color: var(--accent-strong); font-weight: 700; cursor: pointer; padding: 6px 0; }
     .modal-details{ display: none; background: #f9f6f1; border: 1px solid #e8ddcf; border-radius: 12px; padding: 10px; margin-top: 6px; white-space: pre-wrap; font-family: "SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace; font-size: 12px; color: #3c2c21; }
+    .notice{
+      margin: 6px 0 0;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: #f9f6f1;
+      border: 1px solid #e6dbcd;
+      color: #594a36;
+      font-size: 12px;
+      font-weight: 700;
+    }
     @media (max-width: 520px){
       .modal-card{ padding: 16px; border-radius: 16px; }
       .modal-title{ font-size: 16px; }
@@ -289,9 +318,12 @@
   <div class="wrap">
     <div class="topbar">
       <img class="logo" alt="Adeptic" src="/assets/adeptic.png" />
-      <div class="brand">
-        <h1>Horizon & EDF Call Extractor</h1>
-        <p>Upload Horizon or EDF PDFs → get a table preview → download Excel when you click.</p>
+      <div class="topbar-header">
+        <div class="brand">
+          <h1>Horizon & EDF Call Extractor</h1>
+          <p>Upload Horizon or EDF PDFs → get a table preview → download Excel when you click.</p>
+        </div>
+        <div class="version-tag" id="versionTag" aria-label="Deployed version"></div>
       </div>
     </div>
 
@@ -389,12 +421,14 @@
     <div class="card results active" id="results-horizon">
       <h3>Horizon table</h3>
       <p class="hint">Preview columns: Topic ID (clickable), Min Budget per Project (M€), Opening Date, Deadline Date. Funding percentage is shown next to the call type.</p>
+      <div class="notice" id="aiNotice-horizon" style="display:none;"></div>
       <div class="table" id="table-horizon"></div>
     </div>
 
     <div class="card results" id="results-edf">
       <h3>EDF table</h3>
       <p class="hint">Same UI and columns as Horizon. Topic IDs link to Funding &amp; Tenders. Funding % is displayed only when explicitly stated in the PDF.</p>
+      <div class="notice" id="aiNotice-edf" style="display:none;"></div>
       <div class="table" id="table-edf"></div>
     </div>
   </div>
@@ -412,6 +446,7 @@
   </div>
 
   <script>
+    window.APP_VERSION = "__APP_VERSION__";
     const $ = (id) => document.getElementById(id);
     const CALL_TYPE_LABELS = {
       "RIA": "RIA (Research and Innovation Actions)",
@@ -453,8 +488,8 @@
         edf: { files: [], callTypes: [...EDF_CALL_TYPES], selectedTypes: new Set(EDF_CALL_TYPES.map(t => t.name)), minBudget: 0, openingFilter: "", deadlineFilter: "" },
       },
       results: {
-        horizon: { rows: [], downloadUrl: null, rowsCount: 0 },
-        edf: { rows: [], downloadUrl: null, rowsCount: 0 },
+        horizon: { rows: [], downloadUrl: null, rowsCount: 0, summaryNotice: "" },
+        edf: { rows: [], downloadUrl: null, rowsCount: 0, summaryNotice: "" },
       },
       busy: false,
       currentRunId: null,
@@ -835,6 +870,13 @@
       const dlBtn = $("downloadBtn");
       dlBtn.style.display = res.downloadUrl ? "inline-flex" : "none";
       dlBtn.classList.toggle("success", Boolean(res.downloadUrl));
+      const noticeEl = tab === "horizon" ? $("aiNotice-horizon") : $("aiNotice-edf");
+      if(res.summaryNotice){
+        noticeEl.textContent = res.summaryNotice;
+        noticeEl.style.display = "block";
+      } else {
+        noticeEl.style.display = "none";
+      }
 
       const box = tab === "horizon" ? $("table-horizon") : $("table-edf");
       box.innerHTML = "";
@@ -871,7 +913,8 @@
         title.className = "subtitle"; title.textContent = r.topic_title || "—";
         card.appendChild(title);
 
-        if(r.summary){
+        const summaryContent = r.summary || r.topic_description;
+        if(summaryContent){
           const summaryWrap = document.createElement("div");
           summaryWrap.className = "summary-block";
           const label = document.createElement("div");
@@ -879,7 +922,7 @@
           label.textContent = "Summary";
           const summaryText = document.createElement("div");
           summaryText.className = "summary-text";
-          summaryText.textContent = r.summary;
+          summaryText.textContent = summaryContent;
           const toggle = document.createElement("button");
           toggle.type = "button";
           toggle.className = "summary-toggle";
@@ -927,7 +970,7 @@
     }
 
     function resetResult(tab){
-      state.results[tab] = { rows: [], downloadUrl: null, rowsCount: 0 };
+      state.results[tab] = { rows: [], downloadUrl: null, rowsCount: 0, summaryNotice: "" };
       $("downloadBtn").style.display = "none";
       $("downloadBtn").classList.remove("success");
       $("kpi").style.display = "none";
@@ -1094,7 +1137,7 @@
           signal: state.abort.signal,
         });
         ensureActiveRun(runId);
-        state.results[tab] = { rows: proc.rows || [], downloadUrl: dl.download_url, rowsCount: proc.rows_count || 0 };
+        state.results[tab] = { rows: proc.rows || [], downloadUrl: dl.download_url, rowsCount: proc.rows_count || 0, summaryNotice: proc.summary_notice || "" };
         setProgress(100);
         [$("s1"),$("s2"),$("s3"),$("s4")].forEach(el => { el.classList.remove("active"); el.classList.add("done"); });
         renderResults(tab);
@@ -1158,7 +1201,19 @@
       setStatus("Cancelled.", "The operation was stopped on this device.");
     };
 
+    function renderVersion(){
+      const el = $("versionTag");
+      const version = (window.APP_VERSION || "").trim();
+      if(!version){
+        el.style.display = "none";
+        return;
+      }
+      el.textContent = `Deployed: ${version}`;
+      el.style.display = "inline-flex";
+    }
+
     // init
+    renderVersion();
     renderTypeList();
     setBudget(state.tabs.horizon.minBudget);
     syncDateInputs();
