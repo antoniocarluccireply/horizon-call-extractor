@@ -87,6 +87,8 @@ def _normalize_title_text(s: str) -> str:
     # Targeted fixes for glued words seen in PDFs
     s = re.sub(r"(?i)\btopicon\b", "topic on", s)
     s = re.sub(r"(?i)\bimprovingcapabilities\b", "Improving capabilities", s)
+    s = re.sub(r"(?i)\baccessibleand\b", "Accessible and", s)
+    s = re.sub(r"(?i)\bcrimeprevention\b", "Crime prevention", s)
 
     def _split_glued(match: re.Match) -> str:
         left = match.group(1)
@@ -97,6 +99,8 @@ def _normalize_title_text(s: str) -> str:
         return match.group(0)
 
     s = re.sub(r"(?i)\b([a-z]{4,})(on|in|of|for|with|and|to|by|from|at)\b", _split_glued, s)
+    s = re.sub(r"(?i)\b([a-z]{4,})(and|for|on|in|with|between|across)([a-z]{3,})\b", r"\1 \2 \3", s)
+    s = re.sub(r"(?i)\b([a-z]{4,})(capabilities|prevention|security|safety|resilience)\b", r"\1 \2", s)
 
     # Reintroduce spaces between camelCase-like joins (e.g., CrimePrevention)
     s = re.sub(r"([a-z])([A-Z])", r"\1 \2", s)
@@ -356,7 +360,7 @@ def _parse_overview_block(lines: List[str], start_i: int) -> Tuple[Optional[Dict
     return None, start_i
 
 
-def _extract_topic_body(lines: List[str], start_i: int, max_lines: int = 80) -> str:
+def _extract_topic_body(lines: List[str], start_i: int, max_lines: int = 140) -> str:
     """
     Extract a body snippet for the topic starting at index start_i (right after topic line).
     Stops at next topic/call marker. Returns plain text (already normalized).
@@ -385,6 +389,69 @@ def _extract_topic_body(lines: List[str], start_i: int, max_lines: int = 80) -> 
         i += 1
 
     return "\n".join(buf).strip()
+
+
+def _extract_topic_description(body_text: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+    if not body_text:
+        return None, None
+
+    lines = [_norm(ln) for ln in str(body_text).splitlines() if _norm(ln)]
+    if not lines:
+        return None, None
+
+    def _is_stop(ln: str) -> bool:
+        low = ln.lower()
+        stop_prefixes = (
+            "specific conditions",
+            "type of action",
+            "general conditions",
+            "general conditions relating to this call",
+            "eligibility conditions",
+            "admissibility conditions",
+            "conditions are described in general",
+            "the conditions are described in general",
+            "topic conditions and documents",
+        )
+        return any(low.startswith(p) for p in stop_prefixes)
+
+    expected_idx = None
+    scope_idx = None
+    for idx, ln in enumerate(lines):
+        low = ln.lower()
+        if expected_idx is None and low.startswith("expected outcome"):
+            expected_idx = idx
+            continue
+        if scope_idx is None and low.startswith("scope"):
+            scope_idx = idx
+            continue
+
+    def _collect(start_idx: Optional[int], end_idx: Optional[int]) -> Optional[str]:
+        if start_idx is None or start_idx >= len(lines):
+            return None
+        collected: List[str] = []
+        i = start_idx
+        while i < len(lines):
+            ln = lines[i]
+            low = ln.lower()
+            if i == start_idx and (low.startswith("expected outcome") or low.startswith("scope")):
+                i += 1
+                continue
+            if end_idx is not None and i >= end_idx:
+                break
+            if _is_stop(ln):
+                break
+            collected.append(ln)
+            i += 1
+        text = "\n".join(collected).strip()
+        return text or None
+
+    expected_end = scope_idx if scope_idx is not None else None
+    expected_text = _collect(expected_idx, expected_end)
+    scope_text = _collect(scope_idx, None)
+
+    if not expected_text and not scope_text:
+        return None, None
+    return expected_text, scope_text
 
 
 def parse_calls(text: str) -> List[Dict]:
@@ -449,6 +516,9 @@ def parse_calls(text: str) -> List[Dict]:
             "eligibility conditions",
             "the conditions are described in general",
             "conditions are described in general",
+            "admissibility conditions",
+            "general conditions relating to this call",
+            "topic conditions and documents",
         )
         low = ln.lower()
         return any(k in low for k in stop_keywords)
@@ -466,7 +536,15 @@ def parse_calls(text: str) -> List[Dict]:
         title_clean = _fix_inline_hyphen_spacing(title_clean)
 
         page = current_page or pending_page or title_page or current_cluster_page
-        topic_desc = "\n".join(pending_description_parts).strip() or None
+        expected_text, scope_text = _extract_topic_description(pending_body)
+        topic_desc_parts: List[str] = []
+        if expected_text:
+            topic_desc_parts.append(f"Expected Outcome:\n{expected_text}")
+        if scope_text:
+            topic_desc_parts.append(f"Scope:\n{scope_text}")
+        topic_desc = "\n\n".join(topic_desc_parts).strip() or None
+        if not topic_desc:
+            topic_desc = "\n".join(pending_description_parts).strip() or None
         trl_val = _extract_trl("\n".join(filter(None, [pending_body, topic_desc])))
 
         if not current_call_id:
@@ -575,7 +653,7 @@ def parse_calls(text: str) -> List[Dict]:
 
             i += 1  # passa alla riga DOPO il topic_id
             # capture body snippet for optional GPT description (starting after topic line)
-            pending_body = _extract_topic_body(lines, i, max_lines=80)
+            pending_body = _extract_topic_body(lines, i, max_lines=140)
 
             # Gather title until we parse overview
             while i < len(lines):

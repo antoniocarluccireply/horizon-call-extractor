@@ -11,6 +11,7 @@ import urllib.request
 import urllib.error
 import traceback
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from pypdf import PdfReader
 from openpyxl import Workbook
 from openpyxl.styles import Alignment
@@ -113,7 +114,14 @@ def _deploy_version() -> str:
     )
     version = (version or "").strip()
     if not version:
-        version = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        try:
+            rome_now = datetime.now(ZoneInfo("Europe/Rome"))
+            version = rome_now.strftime("%Y-%m-%d %H:%M %Z")
+        except Exception:
+            version = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
+        version = f"v{version}"
+    elif not version.lower().startswith("v"):
+        version = f"v{version}"
     return version
 
 
@@ -455,23 +463,23 @@ def _process_pdf_keys(
     )
 
     for r in rows:
+        body_text = (r.get("topic_body") or "").strip()
         if not r.get("stage"):
             r["stage"] = _derive_stage_from_topic_id(r.get("topic_id"))
         if not r.get("call_round"):
             r["call_round"] = _derive_call_round_from_topic_id(r.get("topic_id"))
         if not r.get("trl"):
-            r["trl"] = _extract_trl_from_text(r.get("topic_body") or r.get("topic_description"))
-        if not r.get("topic_description"):
-            body = (r.get("topic_body") or "").strip()
-            if body:
-                r["topic_description"] = body
+            r["trl"] = _extract_trl_from_text(body_text or r.get("topic_description"))
+        if not r.get("topic_description") and body_text:
+            r["topic_description"] = body_text
 
     # --- OpenAI summaries (optional) ---
     summary_notice = _summarize_topics(rows, DOC_HORIZON, context=context)
 
     for r in rows:
-        if not r.get("topic_description"):
-            r["topic_description"] = r.get("summary") or ""
+        if not r.get("topic_description") and r.get("summary"):
+            r["topic_description"] = r.get("summary")
+        r["summary"] = r.get("topic_description") or r.get("summary") or ""
 
         if r.get("budget_per_project_min_eur_m") is None:
             derived_budget = _compute_budget_per_project_m(r)
@@ -500,7 +508,7 @@ def _process_pdf_keys(
                 "topic_id": r.get("topic_id"),
                 "topic_url": _topic_url(r.get("topic_id")),
                 "topic_title": r.get("topic_title") or "",
-                "summary": r.get("summary") or "",
+                "summary": r.get("topic_description") or r.get("summary") or "",
                 "topic_description": r.get("topic_description") or r.get("summary") or "",
                 "stage": r.get("stage"),
                 "call_round": r.get("call_round"),
@@ -619,7 +627,9 @@ def _write_horizon_xlsx(rows, xlsx_path: str):
     ws.append(headers)
 
     for r in rows:
-        row_values = [r.get(h) for h in headers]
+        row_payload = dict(r)
+        row_payload["summary"] = row_payload.get("topic_description") or row_payload.get("summary")
+        row_values = [row_payload.get(h) for h in headers]
         ws.append(row_values)
 
     # apply hyperlink to topic_id column (6th col)
