@@ -1307,7 +1307,7 @@ def handler(event, context):
                         if not isinstance(row, dict):
                             continue
                         topic_id = row.get("topic_id") or row.get("id")
-                        if isinstance(topic_id, str) and topic_id == "HORIZON-CL3-2026-01-BM-01":
+                        if isinstance(topic_id, str) and topic_id == "HORIZON-CL3-2026-01-DRS-03":
                             snapshot_row = row
                             break
                     if snapshot_row is None:
@@ -1315,7 +1315,7 @@ def handler(event, context):
                             if not isinstance(row, dict):
                                 continue
                             topic_id = row.get("topic_id") or row.get("id")
-                            if isinstance(topic_id, str) and topic_id.startswith("HORIZON-CL3-2026-01-BM-01"):
+                            if isinstance(topic_id, str) and topic_id.startswith("HORIZON-CL3-2026-01-DRS-03"):
                                 snapshot_row = row
                                 break
                 if snapshot_row:
@@ -1334,7 +1334,7 @@ def handler(event, context):
                         snapshot_desc = "null"
                     else:
                         snapshot_desc = str(snapshot_desc).replace("\r", " ").replace("\n", " ")
-                        snapshot_desc = snapshot_desc[:120]
+                        snapshot_desc = snapshot_desc[:200]
                     print(
                         "HCE_SNAPSHOT "
                         f"id={snapshot_id} title={snapshot_title} trl={snapshot_trl} desc={snapshot_desc}"
