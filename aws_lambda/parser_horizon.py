@@ -32,6 +32,7 @@ RE_DOT_LEADER_PAGE = re.compile(r"\s\.{3,}\s*(\d{1,4})\s*$")
 
 RE_TITLE_PAGE_MARKER = re.compile(r"\bPart\s+\d+\s*-\s*Page\s+\d+\s+of\s+\d+\b", flags=re.IGNORECASE)
 RE_TITLE_WORK_PROGRAMME = re.compile(r"\bHorizon Europe\s*-\s*Work Programme\b.*", flags=re.IGNORECASE)
+RE_TITLE_PROGRAMME_TITLE = re.compile(r"\bCivil Security for Society\b", flags=re.IGNORECASE)
 RE_DESC_WORK_PROGRAMME = re.compile(
     r"^\s*Horizon Europe\s*-\s*Work Programme\s*\d{4}\s*[-–]\s*\d{4}\s*$",
     flags=re.IGNORECASE,
@@ -39,6 +40,10 @@ RE_DESC_WORK_PROGRAMME = re.compile(
 RE_DESC_PROGRAMME_TITLE = re.compile(r"^\s*Civil Security for Society\s*$", flags=re.IGNORECASE)
 RE_DESC_PAGE_MARKER = re.compile(
     r"^\s*Part\s+\d+\s*-\s*Page\s+\d+\s+of\s+\d+\s*$",
+    flags=re.IGNORECASE,
+)
+RE_TITLE_SECTION_HEADER = re.compile(
+    r"^(Call:|Specific conditions|Expected Outcome:?|Scope:?|Indicative budget|Type of Action|Eligibility conditions|Technology Readiness Level|Legal and financial set-up|Security Sensitive Topics)\b",
     flags=re.IGNORECASE,
 )
 
@@ -101,8 +106,8 @@ def _format_topic_description(text: str) -> str:
     if not text:
         return ""
     text = str(text).replace("\r\n", "\n").replace("\r", "\n")
-    text = re.sub(r"(?<!\n)\s+•\s+", "\n• ", text)
-    text = re.sub(r"(?<!^)(?<!\n)•\s+", "\n• ", text)
+    text = re.sub(r"(?<!^)(?<!\n)\s*•\s+", "\n• ", text)
+    text = re.sub(r"(?<!^)(?<!\n)•", "\n•", text)
     lines = text.split("\n")
     cleaned_lines = []
     for line in lines:
@@ -143,6 +148,7 @@ def _strip_title_page_markers(title: str) -> str:
         return title
     cleaned = RE_TITLE_PAGE_MARKER.sub("", title)
     cleaned = RE_TITLE_WORK_PROGRAMME.sub("", cleaned)
+    cleaned = RE_TITLE_PROGRAMME_TITLE.sub("", cleaned)
     return _normalize_ws(cleaned)
 
 
@@ -708,27 +714,18 @@ def parse_calls(text: str) -> List[Dict]:
             if r.get(k) not in (None, "", 0)
         )
 
+    def _is_title_noise_line(ln: str) -> bool:
+        return bool(
+            RE_PAGE_MARKER.match(ln)
+            or RE_TITLE_PAGE_MARKER.search(ln)
+            or RE_TITLE_WORK_PROGRAMME.search(ln)
+            or RE_TITLE_PROGRAMME_TITLE.search(ln)
+        )
+
     def _stop_title(ln: str) -> bool:
         if not ln:
             return False
-        stop_keywords = (
-            "the director-general",
-            "all deadlines are",
-            "brussels local time",
-            "funding:",
-            "expected outcomes",
-            "expected impact",
-            "general conditions relating to this call",
-        )
-        low = ln.lower()
-        return (
-            bool(RE_PAGE_MARKER.match(ln))
-            or bool(RE_TITLE_PAGE_MARKER.search(ln))
-            or bool(RE_TITLE_WORK_PROGRAMME.search(ln))
-            or any(k in low for k in stop_keywords)
-            or any(m in low for m in STOP_TITLE_MARKERS)
-            or bool(re.match(r"(?i)^(Call|Expected Outcome|Scope|Indicative budget|Type of Action|Technology Readiness Level|Legal and financial set-up|Security Sensitive Topics)\b", ln))
-        )
+        return bool(RE_TITLE_SECTION_HEADER.match(ln))
 
     def flush_topic():
         nonlocal pending_topic_id, pending_title_parts, pending_description_parts, pending_body, pending_page
@@ -868,6 +865,28 @@ def parse_calls(text: str) -> List[Dict]:
             # capture detail block (narrative pages) for description/TRL
             pending_body = _select_detail_block(detail_blocks.get(pending_topic_id))
 
+            title_lines_collected = 0
+            while i < len(lines) and title_lines_collected < 6:
+                nxt = _norm(lines[i])
+                if not nxt:
+                    i += 1
+                    continue
+                if _is_title_noise_line(nxt):
+                    i += 1
+                    continue
+                if nxt.startswith("Call - ") or RE_TOPIC_ID.search(nxt):
+                    break
+                if RE_CALL_ID.search(nxt) and not RE_TOPIC_ID.search(nxt):
+                    break
+                tokens = nxt.split()
+                if tokens and tokens[0] in ACTION_TYPES:
+                    break
+                if _stop_title(nxt):
+                    break
+                pending_title_parts.append(nxt)
+                title_lines_collected += 1
+                i += 1
+
             # Gather title until we parse overview
             while i < len(lines):
                 nxt = _norm(lines[i])
@@ -881,6 +900,10 @@ def parse_calls(text: str) -> List[Dict]:
                     break
                 if RE_CALL_ID.search(nxt) and not RE_TOPIC_ID.search(nxt):
                     break
+
+                if _is_title_noise_line(nxt):
+                    i += 1
+                    continue
 
                 if _stop_title(nxt):
                     break
@@ -932,6 +955,10 @@ def parse_calls(text: str) -> List[Dict]:
                             if not tail or tail.startswith("Destination - ") or tail.startswith("Call - ") or RE_TOPIC_ID.search(tail):
                                 break
 
+                            if _is_title_noise_line(tail):
+                                i += 1
+                                continue
+
                             if _stop_title(tail):
                                 break
 
@@ -955,15 +982,6 @@ def parse_calls(text: str) -> List[Dict]:
                             i += 1
 
                         break
-
-                if (
-                    not nxt.startswith("Destination - ")
-                    and not pending_description_parts
-                    and not RE_SKIP_DESC.match(nxt)
-                    and not _stop_title(nxt)
-                ):
-                    pending_title_parts.append(nxt)
-
                 i += 1
 
             flush_topic()
@@ -1022,6 +1040,6 @@ if __name__ == "__main__":
         if drs_match:
             desc = drs_match.get("topic_description") or ""
             print("Debug DRS-03 title:", drs_match.get("topic_title"))
-            print("Debug DRS-03 description (120 chars):", desc[:120])
+            print("Debug DRS-03 description (200 chars):", desc[:200])
         else:
             print("Debug DRS-03: topic not found.")

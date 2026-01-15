@@ -255,9 +255,9 @@
     .rawtext{ white-space: pre-wrap; font-family: "SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace; font-size: 13px; color:#2f241c; }
     .desc-summary{ display:flex; gap: 8px; flex-wrap: wrap; align-items:center; }
     .desc-preview{ color: var(--muted2); font-size: 12px; font-weight: 500; }
-    .desc-body{ white-space: pre-wrap; line-height:1.35; font-size: 13px; color:#2f241c; }
-    .summary-block{ display:flex; flex-direction:column; gap:4px; }
-    .summary-text{ color: var(--muted2); font-size: 13px; line-height:1.45; white-space: pre-wrap; }
+    .desc-body{ white-space: pre-wrap; line-height:1.35; font-size: 13px; color:#2f241c; width:100%; }
+    .summary-block{ display:flex; flex-direction:column; gap:4px; width:100%; }
+    .summary-text{ color: var(--muted2); font-size: 13px; line-height:1.45; white-space: pre-wrap; width:100%; }
     .summary-text.expanded{ -webkit-line-clamp: unset; max-height:none; }
     .summary-text.desc-preview{ display:block; -webkit-line-clamp: unset; max-height:none; }
     .summary-toggle{ background:none; border:none; color: var(--accent-strong); font-weight:700; font-size:12px; cursor:pointer; padding:0; align-self:flex-start; }
@@ -560,7 +560,12 @@
         scope = full.slice(scopeMatch.index + scopeMatch[0].length).trim();
       }
       expected = expected.replace(/^Expected Outcome:?\s*/i, "").trim();
-      const basePreview = (expected || full).replace(/\s+/g, " ").trim();
+      const previewSource = (expected || full).trim();
+      const basePreview = previewSource
+        .split("\n")
+        .map(line => line.replace(/\s+/g, " ").trim())
+        .join("\n")
+        .trim();
       const maxPreview = 240;
       let previewText = basePreview;
       if(previewText.length > maxPreview){
