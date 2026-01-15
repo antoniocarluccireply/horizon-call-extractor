@@ -29,6 +29,9 @@ RE_PAGE_MARKER = re.compile(r"^<<<PAGE\s+(\d+)>>>$")
 
 RE_DOT_LEADER_PAGE = re.compile(r"\s\.{3,}\s*(\d{1,4})\s*$")
 
+# Numeric values with 1-3 decimals (EUR million in PDFs).
+RE_DECIMAL_NUMBER = r"\d+(?:\.\d{1,3})?"
+
 # Detect lines that are clearly a split identifier ending with '-'
 RE_SPLIT_ID_LINE = re.compile(r"^HORIZON-[A-Z0-9]+(?:-[A-Z0-9]+)*-$")
 
@@ -285,6 +288,10 @@ def _clean_overview_joined(s: str) -> str:
     return _norm(s)
 
 
+def _normalize_overview_text(s: str) -> str:
+    return re.sub(r"\s+", " ", s or "").strip()
+
+
 def _parse_overview_block(lines: List[str], start_i: int) -> Tuple[Optional[Dict], int]:
     """
     Multi-line parse of overview row (may be split across lines).
@@ -320,9 +327,9 @@ def _parse_overview_block(lines: List[str], start_i: int) -> Tuple[Optional[Dict
             continue
 
         action = m.group(1)
-        rest = m.group(2)
+        rest = _normalize_overview_text(m.group(2))
 
-        total_m = re.search(r"\b(\d{1,4}(?:\.\d{1,2})?)\b", rest)
+        total_m = re.search(rf"\b({RE_DECIMAL_NUMBER})\b", rest)
         if not total_m:
             i += 1
             continue
@@ -330,7 +337,7 @@ def _parse_overview_block(lines: List[str], start_i: int) -> Tuple[Optional[Dict
 
         # Range: "... 9.00 to 10.00 2"
         rp = re.search(
-            r"\b(\d{1,4}(?:\.\d{1,2})?)\s+to\s+(\d{1,4}(?:\.\d{1,2})?)\s+(\d{1,3})\b",
+            rf"\b({RE_DECIMAL_NUMBER})\s+to\s+({RE_DECIMAL_NUMBER})\s+(\d{{1,3}})\b",
             rest,
         )
         if rp:
@@ -343,26 +350,26 @@ def _parse_overview_block(lines: List[str], start_i: int) -> Tuple[Optional[Dict
             }, i + 1)
 
         # Around clean: "... Around 10.00 4"
-        ap = re.search(
-            r"\bAround\s+(\d{1,4}(?:\.\d{1,2})?)\s+(\d{1,3})\b",
-            rest,
-            flags=re.IGNORECASE,
-        )
+        ap = re.search(rf"\bAround\s+(?P<amount>{RE_DECIMAL_NUMBER})\b", rest, flags=re.IGNORECASE)
         if ap:
-            p = float(ap.group(1))
+            projects_m = re.search(r"(?<!\.)\b(?P<projects>\d{1,3})\s*$", rest)
+            if not projects_m:
+                i += 1
+                continue
+            p = float(ap.group("amount"))
             return ({
                 "action_type": action,
                 "budget_eur_m": total,
                 "budget_per_project_min_eur_m": p,
                 "budget_per_project_max_eur_m": p,
-                "projects": int(ap.group(2)),
+                "projects": int(projects_m.group("projects")),
             }, i + 1)
 
         # Around messy (CARE-03 style): "... Around 4 ... 10.00"
         m_ap_int = re.search(r"\bAround\s+(\d{1,3})\b", rest, flags=re.IGNORECASE)
         if m_ap_int:
             projects = int(m_ap_int.group(1))
-            floats = re.findall(r"\b(\d{1,4}(?:\.\d{1,2})?)\b", rest)
+            floats = re.findall(rf"\b({RE_DECIMAL_NUMBER})\b", rest)
             p = None
             for f in reversed(floats):
                 try:
@@ -778,3 +785,21 @@ def parse_calls(text: str) -> List[Dict]:
     rows = list(best_by_topic.values())
     rows.sort(key=lambda r: (r.get("call_id") or "", r.get("topic_id") or ""))
     return rows
+
+
+def _run_overview_sanity_checks() -> None:
+    cases = [
+        (["RIA 9.67 Around 4.835 2"], 9.67, 4.835, 2),
+        (["RIA 7.833 Around", "4.835", "2"], 7.833, 4.835, 2),
+    ]
+    for lines, total, per, projects in cases:
+        parsed, _ = _parse_overview_block(lines, 0)
+        assert parsed, f"Failed to parse overview block for: {lines}"
+        assert abs(parsed["budget_eur_m"] - total) < 1e-6, parsed
+        assert abs(parsed["budget_per_project_min_eur_m"] - per) < 1e-6, parsed
+        assert parsed["projects"] == projects, parsed
+
+
+if __name__ == "__main__":
+    _run_overview_sanity_checks()
+    print("Overview parsing sanity checks passed.")
