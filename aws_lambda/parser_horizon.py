@@ -106,6 +106,63 @@ def _normalize_ws(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
 
+def normalize_pdf_text(s: str) -> str:
+    if not s:
+        return ""
+    text = str(s).replace("\u00a0", " ").replace("\u00ad", "")
+    text = re.sub(r"\b(\w+)\s*-\s*(\w+)\b", r"\1-\2", text)
+    text = re.sub(r"\bresp\s*on\s*ses\b", "responses", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bresp\s*on\s*ders\b", "responders", text, flags=re.IGNORECASE)
+    text = re.sub(r"\benvir\s*on\s*ments\b", "environments", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bpers\s*on\s*alised\b", "personalised", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bpers\s*on\s*alized\b", "personalized", text, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def strip_headers_footers_lines(lines: List[str]) -> List[str]:
+    if not lines:
+        return []
+    short_headers = {
+        "Civil Security for Society",
+        "Cluster 3",
+        "Health",
+    }
+    cleaned: List[str] = []
+    for line in lines:
+        candidate = line.strip()
+        if not candidate:
+            if cleaned and cleaned[-1] == "":
+                continue
+            cleaned.append("")
+            continue
+        if re.match(r"^Horizon Europe\s*-\s*Work Programme\s*\d{4}-\d{4}$", candidate, flags=re.IGNORECASE):
+            continue
+        if re.match(r"^Part\s+\d+\s*-\s*Page\s+\d+\s+of\s+\d+$", candidate, flags=re.IGNORECASE):
+            continue
+        if candidate in short_headers:
+            continue
+        cleaned.append(line)
+    return cleaned
+
+
+def superscript_footnotes(text: str) -> str:
+    if not text:
+        return ""
+    updated = re.sub(r"\[(\d{1,3})\]", r"<sup>\1</sup>", text)
+
+    def _inline_sup(match: re.Match) -> str:
+        token = match.group(1)
+        number = match.group(2)
+        token_stripped = token.rstrip(")")
+        is_acronym = token_stripped.isupper() and any(c.isalpha() for c in token_stripped)
+        if is_acronym or token.endswith(")"):
+            return f"{token}<sup>{number}</sup>"
+        return match.group(0)
+
+    updated = re.sub(r"\b([A-Za-z][A-Za-z0-9\-/]{0,20}\)?)\s+(\d{1,3})(?=\s|$)", _inline_sup, updated)
+    return updated
+
+
 def _format_topic_description(text: str) -> str:
     if not text:
         return ""
@@ -128,23 +185,8 @@ def _strip_header_footer_noise(text: str) -> str:
         return ""
     text = str(text).replace("\r\n", "\n").replace("\r", "\n")
     lines = text.split("\n")
-    cleaned_lines: List[str] = []
-    for line in lines:
-        candidate = line.strip()
-        if (
-            RE_DESC_WORK_PROGRAMME.match(candidate)
-            or RE_DESC_PROGRAMME_TITLE.match(candidate)
-            or RE_DESC_PAGE_MARKER.match(candidate)
-        ):
-            continue
-        if not candidate:
-            if cleaned_lines and cleaned_lines[-1] == "":
-                continue
-            cleaned_lines.append("")
-            continue
-        cleaned_lines.append(line)
-    cleaned = "\n".join(cleaned_lines).strip("\n")
-    return cleaned
+    cleaned_lines = strip_headers_footers_lines(lines)
+    return "\n".join(cleaned_lines).strip("\n")
 
 
 def _strip_title_page_markers(title: str) -> str:
@@ -205,9 +247,8 @@ def _normalize_title_text(s: str) -> str:
     # Reintroduce spaces between camelCase-like joins (e.g., CrimePrevention)
     s = re.sub(r"([a-z])([A-Z])", r"\1 \2", s)
 
-    # Collapse multiple spaces
     s = re.sub(r"\s+", " ", s)
-    return s.strip()
+    return normalize_pdf_text(s)
 
 
 def _finalize_title(title: str, topic_id: Optional[str]) -> str:
@@ -215,13 +256,7 @@ def _finalize_title(title: str, topic_id: Optional[str]) -> str:
         return ""
     if topic_id:
         title = re.sub(rf"^\s*{re.escape(topic_id)}\s*:\s*", "", title)
-    title = re.sub(r"\benvir\s*on\s*ments\b", "environments", title, flags=re.IGNORECASE)
-    title = re.sub(r"\bresp\s*on\s*ses\b", "responses", title, flags=re.IGNORECASE)
-    title = re.sub(r"\bresp\s*on\s*ders\b", "responders", title, flags=re.IGNORECASE)
-    title = re.sub(r"\bresp\s*on\s*se\b", "response", title, flags=re.IGNORECASE)
-    title = re.sub(r"\btechnolo\s*gies\b", "technologies", title, flags=re.IGNORECASE)
-    title = re.sub(r"\bequip\s*ment\b", "equipment", title, flags=re.IGNORECASE)
-    return re.sub(r"\s+", " ", title).strip()
+    return normalize_pdf_text(title)
 
 
 def _extract_title_from_detail(detail_block: Optional[str], topic_id: str) -> Optional[str]:
@@ -713,6 +748,54 @@ def _extract_topic_description(body_text: Optional[str]) -> Tuple[Optional[str],
     return expected_text, scope_text
 
 
+def _build_topic_description(expected_text: Optional[str], scope_text: Optional[str]) -> Optional[str]:
+    lines: List[str] = []
+
+    def _split_bullets(line: str) -> List[str]:
+        if "•" not in line:
+            return [line]
+        parts = line.split("•")
+        collected: List[str] = []
+        head = parts[0].strip()
+        if head:
+            collected.append(head)
+        for part in parts[1:]:
+            bullet = part.strip()
+            if bullet:
+                collected.append(f"• {bullet}")
+        return collected
+
+    def _add_block(label: str, text: Optional[str]) -> None:
+        if not text:
+            return
+        if lines and lines[-1] != "":
+            lines.append("")
+        lines.append(label)
+        for raw in str(text).replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+            if not raw.strip():
+                lines.append("")
+                continue
+            normalized = normalize_pdf_text(raw)
+            if not normalized:
+                lines.append("")
+                continue
+            for item in _split_bullets(normalized):
+                if item.startswith("•") and not item.startswith("• "):
+                    item = "• " + item[1:].lstrip()
+                lines.append(item)
+
+    _add_block("Expected Outcome:", expected_text)
+    _add_block("Scope:", scope_text)
+
+    if not lines:
+        return None
+    cleaned_lines = strip_headers_footers_lines(lines)
+    text = "\n".join(cleaned_lines).strip()
+    if not text:
+        return None
+    text = superscript_footnotes(text)
+    return text[:20000]
+
 def parse_calls(text: str) -> List[Dict]:
     # Normalize every line early (important for weird hyphens)
     raw_text_lines = (text or "").splitlines()
@@ -779,10 +862,10 @@ def parse_calls(text: str) -> List[Dict]:
         if not pending_topic_id:
             return
 
-        summary_title_raw = _normalize_title_text(_join_title_parts(pending_title_parts))
+        summary_title_raw = normalize_pdf_text(_join_title_parts(pending_title_parts))
         summary_title_raw = _strip_title_page_markers(summary_title_raw)
         summary_title_clean, title_page = _strip_dot_leader_page(summary_title_raw)
-        summary_title_clean = _trim_title_stop_phrases(_fix_inline_hyphen_spacing(summary_title_clean))
+        summary_title_clean = _trim_title_stop_phrases(summary_title_clean)
         summary_title_clean = _strip_title_page_markers(summary_title_clean)
 
         detail_title = _extract_title_from_detail(pending_body, pending_topic_id)
@@ -794,31 +877,38 @@ def parse_calls(text: str) -> List[Dict]:
 
         page = current_page or pending_page or title_page or current_cluster_page
         expected_text, scope_text = _extract_topic_description(pending_body)
-        if expected_text:
-            expected_text = _format_topic_description(expected_text)
-        if scope_text:
-            scope_text = _format_topic_description(scope_text)
-        topic_desc_parts: List[str] = []
-        if expected_text:
-            topic_desc_parts.append(f"Expected Outcome: {expected_text}")
-        if scope_text:
-            topic_desc_parts.append(f"Scope: {scope_text}")
-        topic_desc_raw = "\n\n".join(topic_desc_parts)
-        topic_desc_clean = _strip_header_footer_noise(topic_desc_raw)
-        topic_desc = _format_topic_description(topic_desc_clean) or None
+        topic_desc = _build_topic_description(expected_text, scope_text)
         trl_val = _extract_trl("\n".join(filter(None, [pending_body, topic_desc])))
 
         if not current_call_id:
             current_call_id = _derive_call_id_from_topic(pending_topic_id)
 
-        if os.environ.get("HCE_DEBUG_SNAPSHOT") == "1" and pending_topic_id == "HORIZON-CL3-2027-01-DRS-01":
-            print(f"HCE_SNAPSHOT_TITLE id={pending_topic_id} title={title_clean}")
-
-        if os.environ.get("HCE_DEBUG_SNAPSHOT") and pending_topic_id == "HORIZON-CL3-2026-01-DRS-03":
-            print(f"HCE_SNAPSHOT_TITLE id={pending_topic_id} title={title_clean}")
-
-        if os.environ.get("HCE_SNAPSHOT_TITLE"):
-            print(f"HCE_SNAPSHOT_TITLE id={pending_topic_id} title={title_clean}")
+        if os.environ.get("HCE_DEBUG") == "1":
+            debug_ids = {
+                "HORIZON-CL3-2026-01-DRS-03",
+                "HORIZON-CL3-2026-01-DRS-01",
+                "HORIZON-CL3-2026-01-CARE-01",
+            }
+            if pending_topic_id in debug_ids:
+                raw_title = " ".join(pending_title_parts)
+                title_has_split = bool(re.search(
+                    r"\b(resp|envir|pers)\s+on\s+(ses|ders|ments|alised|alized)\b",
+                    raw_title or "",
+                    flags=re.IGNORECASE,
+                ))
+                desc_has_header = bool(re.search(
+                    r"(Horizon Europe\s*-\s*Work Programme|Part\s+\d+\s*-\s*Page\s+\d+\s+of\s+\d+)",
+                    pending_body or "",
+                    flags=re.IGNORECASE,
+                ))
+                title_preview = (title_clean or "")[:120]
+                print(
+                    "HCE_SNAPSHOT_TEXT "
+                    f"id={pending_topic_id} "
+                    f"title={title_preview} "
+                    f"title_has_split={title_has_split} "
+                    f"desc_has_header={desc_has_header}"
+                )
 
         row = {
             "cluster": current_cluster,
@@ -925,12 +1015,10 @@ def parse_calls(text: str) -> List[Dict]:
             # capture detail block (narrative pages) for description/TRL
             pending_body = _select_detail_block(detail_blocks.get(pending_topic_id))
 
-            title_lines_collected = 0
-            while i < len(lines) and title_lines_collected < 6:
+            while i < len(lines):
                 nxt = _norm(lines[i])
                 if not nxt:
-                    i += 1
-                    continue
+                    break
                 if _is_title_noise_line(nxt):
                     i += 1
                     continue
@@ -938,13 +1026,11 @@ def parse_calls(text: str) -> List[Dict]:
                     break
                 if RE_CALL_ID.search(nxt) and not RE_TOPIC_ID.search(nxt):
                     break
-                tokens = nxt.split()
-                if tokens and tokens[0] in ACTION_TYPES:
-                    break
                 if _stop_title(nxt):
                     break
+                if re.match(rf"^{ACTION_TYPES_PATTERN}\b", nxt):
+                    break
                 pending_title_parts.append(nxt)
-                title_lines_collected += 1
                 i += 1
 
             # Gather title until we parse overview

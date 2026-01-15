@@ -255,9 +255,9 @@
     .rawtext{ white-space: pre-wrap; font-family: "SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace; font-size: 13px; color:#2f241c; }
     .desc-summary{ display:flex; gap: 8px; flex-wrap: wrap; align-items:center; }
     .desc-preview{ color: var(--muted2); font-size: 12px; font-weight: 500; }
-    .desc-body{ white-space: pre-wrap; line-height:1.35; font-size: 13px; color:#2f241c; width:100%; }
+    .desc-body{ white-space: pre-wrap; line-height:1.35; font-size: 13px; color:#2f241c; width:100%; word-break: break-word; }
     .summary-block{ display:flex; flex-direction:column; gap:4px; width:100%; }
-    .summary-text{ color: var(--muted2); font-size: 13px; line-height:1.45; white-space: pre-wrap; width:100%; }
+    .summary-text{ color: var(--muted2); font-size: 13px; line-height:1.45; white-space: pre-wrap; width:100%; word-break: break-word; }
     .summary-text.expanded{ -webkit-line-clamp: unset; max-height:none; }
     .summary-text.desc-preview{ display:block; -webkit-line-clamp: unset; max-height:none; }
     .summary-toggle{ background:none; border:none; color: var(--accent-strong); font-weight:700; font-size:12px; cursor:pointer; padding:0; align-self:flex-start; }
@@ -573,6 +573,20 @@
       }
       const preview = expected ? `Expected Outcome: ${previewText}` : previewText;
       return { full, preview, expected, scope };
+    }
+
+    function escapeHtml(text){
+      return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function renderSupSafe(text){
+      const escaped = escapeHtml(text || "");
+      return escaped.replace(/&lt;sup&gt;(\d{1,3})&lt;\/sup&gt;/g, "<sup>$1</sup>");
     }
 
     function updateTypeSummary(tab = state.activeTab){
@@ -969,11 +983,11 @@
 
           const previewText = document.createElement("div");
           previewText.className = "summary-text desc-preview";
-          previewText.textContent = descData.preview;
+          previewText.innerHTML = renderSupSafe(descData.preview);
 
           const fullText = document.createElement("div");
           fullText.className = "desc-body";
-          fullText.textContent = descData.full;
+          fullText.innerHTML = renderSupSafe(descData.full);
           fullText.style.display = "none";
 
           const toggle = document.createElement("button");
