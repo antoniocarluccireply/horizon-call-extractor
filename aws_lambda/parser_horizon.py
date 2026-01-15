@@ -75,6 +75,9 @@ def _norm(s: str) -> str:
 
     return re.sub(r"\s+", " ", s).strip()
 
+def _normalize_ws(text: str) -> str:
+    return re.sub(r"\s+", " ", text or "").strip()
+
 
 def _normalize_title_text(s: str) -> str:
     """
@@ -119,7 +122,7 @@ def _normalize_title_text(s: str) -> str:
 
     s = re.sub(r"(?i)\b([a-z]{4,})(on|in|of|for|with|and|to|by|from|at)\b", _split_glued, s)
     s = re.sub(r"(?i)\b([a-z]{4,})(and|for|on|in|with|between|across)([a-z]{3,})\b", r"\1 \2 \3", s)
-    s = re.sub(r"(?i)\b([a-z]{4,})(capabilities|prevention|security|safety|resilience|eligibility|conditions)\b", r"\1 \2", s)
+    s = re.sub(r"(?i)\b([a-z]{4,})(capabilities|prevention|security|safety|resilience|eligibility|conditions|border)\b", r"\1 \2", s)
     s = re.sub(r"(?i)\b([a-z]{4,})(outcome|scope|innovation|solution|solutions|systems?)\b", r"\1 \2", s)
 
     # Reintroduce spaces between camelCase-like joins (e.g., CrimePrevention)
@@ -231,7 +234,7 @@ def _derive_stage(topic_id: Optional[str], current_stage: Optional[str]) -> Opti
 def _extract_trl(text: Optional[str]) -> Optional[str]:
     if not text:
         return None
-    normalized = _norm(str(text))
+    normalized = _normalize_ws(str(text))
     patterns = [
         r"\bTRL\b\s*(\d+(?:\s*[-–—]\s*\d+)?)",
         r"technology\s+readiness\s+level\s*[:\-]?\s*(\d+(?:\s*[-–—]\s*\d+)?)",
@@ -296,6 +299,55 @@ def _merge_split_identifier_lines(lines: List[str]) -> List[str]:
         i += 1
 
     return out
+
+
+def _build_detail_blocks(text: str) -> Dict[str, List[str]]:
+    raw_lines = (text or "").splitlines()
+    normalized_lines = [_norm(ln) for ln in raw_lines]
+    blocks_by_topic: Dict[str, List[str]] = {}
+    i = 0
+    while i < len(normalized_lines):
+        ln = normalized_lines[i]
+        m_topic = RE_TOPIC_ID.search(ln)
+        if not m_topic:
+            i += 1
+            continue
+        topic_id = m_topic.group(0)
+        start = i
+        j = i + 1
+        while j < len(normalized_lines):
+            if RE_TOPIC_ID.search(normalized_lines[j]):
+                break
+            j += 1
+        raw_block = "\n".join(raw_lines[start:j]).strip()
+        if raw_block:
+            blocks_by_topic.setdefault(topic_id, []).append(raw_block)
+        i = j
+    return blocks_by_topic
+
+
+def _select_detail_block(blocks: Optional[List[str]]) -> Optional[str]:
+    if not blocks:
+        return None
+
+    def _score(block: str, idx: int) -> Tuple[int, int]:
+        normalized = _normalize_ws(block)
+        score = 0
+        if re.search(r"expected outcome", normalized, flags=re.IGNORECASE):
+            score += 4
+        if re.search(r"\bscope\b", normalized, flags=re.IGNORECASE):
+            score += 2
+        if re.search(r"technology readiness level|\bTRL\b", normalized, flags=re.IGNORECASE):
+            score += 1
+        if re.search(r"indicative budget", normalized, flags=re.IGNORECASE):
+            score += 1
+        return score, idx
+
+    scored = [(_score(block, idx), block) for idx, block in enumerate(blocks)]
+    scored.sort(key=lambda item: item[0], reverse=True)
+    if scored[0][0][0] == 0:
+        return None
+    return scored[0][1]
 
 
 
@@ -450,17 +502,24 @@ def _extract_topic_description(body_text: Optional[str]) -> Tuple[Optional[str],
     if not body_text:
         return None, None
 
-    lines = [_norm(ln) for ln in str(body_text).splitlines() if _norm(ln)]
+    raw_lines = [ln for ln in str(body_text).splitlines() if ln.strip()]
+    lines = []
+    for ln in raw_lines:
+        normalized = _norm(ln)
+        if not normalized or RE_PAGE_MARKER.match(normalized):
+            continue
+        lines.append((ln, normalized))
     if not lines:
         return None, None
 
-    def _is_stop(ln: str) -> bool:
-        low = ln.lower()
+    def _is_stop(normalized_ln: str) -> bool:
+        low = normalized_ln.lower()
         stop_prefixes = (
             "actions funded under this topic",
             "indicative budget",
             "technology readiness level",
             "legal and financial set-up",
+            "security sensitive topics",
             "specific conditions",
             "type of action",
             "general conditions",
@@ -470,14 +529,19 @@ def _extract_topic_description(body_text: Optional[str]) -> Tuple[Optional[str],
             "conditions are described in general",
             "the conditions are described in general",
             "topic conditions and documents",
+            "expected impact",
         )
-        return any(low.startswith(p) for p in stop_prefixes) or any(low.startswith(m) for m in STOP_TITLE_MARKERS)
+        return (
+            any(low.startswith(p) for p in stop_prefixes)
+            or any(low.startswith(m) for m in STOP_TITLE_MARKERS)
+            or bool(RE_TOPIC_ID.search(normalized_ln))
+        )
 
     expected_idx = None
     expected_inline = None
     scope_idx = None
     scope_inline = None
-    for idx, ln in enumerate(lines):
+    for idx, (_, ln) in enumerate(lines):
         if expected_idx is None:
             m_expected = re.match(r"(?i)expected outcomes?:?\s*(.*)$", ln)
             if m_expected:
@@ -507,7 +571,7 @@ def _extract_topic_description(body_text: Optional[str]) -> Tuple[Optional[str],
             collected.append(inline)
         i = start_idx
         while i < len(lines):
-            ln = lines[i]
+            raw_ln, ln = lines[i]
             low = ln.lower()
             if i == start_idx and (low.startswith("expected outcome") or low.startswith("scope")):
                 i += 1
@@ -516,9 +580,9 @@ def _extract_topic_description(body_text: Optional[str]) -> Tuple[Optional[str],
                 break
             if _is_stop(ln):
                 break
-            collected.append(ln)
+            collected.append(raw_ln)
             i += 1
-        text = "\n".join(collected).strip()
+        text = _normalize_ws(" ".join(collected))
         return text or None
 
     expected_end = scope_idx if scope_idx is not None else None
@@ -532,8 +596,10 @@ def _extract_topic_description(body_text: Optional[str]) -> Tuple[Optional[str],
 
 def parse_calls(text: str) -> List[Dict]:
     # Normalize every line early (important for weird hyphens)
-    raw_lines = [_norm(ln) for ln in (text or "").splitlines() if _norm(ln)]
+    raw_text_lines = (text or "").splitlines()
+    raw_lines = [_norm(ln) for ln in raw_text_lines if _norm(ln)]
     lines = _merge_split_identifier_lines(raw_lines)
+    detail_blocks = _build_detail_blocks(text or "")
 
     current_page: Optional[int] = None
 
@@ -604,9 +670,9 @@ def parse_calls(text: str) -> List[Dict]:
         expected_text, scope_text = _extract_topic_description(pending_body)
         topic_desc_parts: List[str] = []
         if expected_text:
-            topic_desc_parts.append(f"Expected Outcome:\n{expected_text}")
+            topic_desc_parts.append(f"Expected Outcome: {expected_text}")
         if scope_text:
-            topic_desc_parts.append(f"Scope:\n{scope_text}")
+            topic_desc_parts.append(f"Scope: {scope_text}")
         topic_desc = "\n\n".join(topic_desc_parts).strip() or None
         trl_val = _extract_trl("\n".join(filter(None, [pending_body, topic_desc])))
 
@@ -715,8 +781,8 @@ def parse_calls(text: str) -> List[Dict]:
             pending_title_parts = [_norm(after[1])] if len(after) == 2 else []
 
             i += 1  # passa alla riga DOPO il topic_id
-            # capture body snippet for optional GPT description (starting after topic line)
-            pending_body = _extract_topic_body(lines, i, max_lines=140)
+            # capture detail block (narrative pages) for description/TRL
+            pending_body = _select_detail_block(detail_blocks.get(pending_topic_id))
 
             # Gather title until we parse overview
             while i < len(lines):
