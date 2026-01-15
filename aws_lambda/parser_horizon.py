@@ -215,7 +215,9 @@ def _finalize_title(title: str, topic_id: Optional[str]) -> str:
         return ""
     if topic_id:
         title = re.sub(rf"^\s*{re.escape(topic_id)}\s*:\s*", "", title)
+    title = re.sub(r"\benvir\s*on\s*ments\b", "environments", title, flags=re.IGNORECASE)
     title = re.sub(r"\bresp\s*on\s*ses\b", "responses", title, flags=re.IGNORECASE)
+    title = re.sub(r"\bresp\s*on\s*ders\b", "responders", title, flags=re.IGNORECASE)
     title = re.sub(r"\bresp\s*on\s*se\b", "response", title, flags=re.IGNORECASE)
     title = re.sub(r"\btechnolo\s*gies\b", "technologies", title, flags=re.IGNORECASE)
     title = re.sub(r"\bequip\s*ment\b", "equipment", title, flags=re.IGNORECASE)
@@ -808,6 +810,9 @@ def parse_calls(text: str) -> List[Dict]:
 
         if not current_call_id:
             current_call_id = _derive_call_id_from_topic(pending_topic_id)
+
+        if os.environ.get("HCE_DEBUG_SNAPSHOT") == "1" and pending_topic_id == "HORIZON-CL3-2027-01-DRS-01":
+            print(f"HCE_SNAPSHOT_TITLE id={pending_topic_id} title={title_clean}")
 
         if os.environ.get("HCE_DEBUG_SNAPSHOT") and pending_topic_id == "HORIZON-CL3-2026-01-DRS-03":
             print(f"HCE_SNAPSHOT_TITLE id={pending_topic_id} title={title_clean}")
