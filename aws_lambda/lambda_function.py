@@ -1175,6 +1175,16 @@ def log_version_marker(context=None):
 
 def handler(event, context):
     log_version_marker(context)
+    path_value = None
+    if isinstance(event, dict):
+        if "rawPath" in event:
+            path_value = event.get("rawPath")
+        elif "path" in event:
+            path_value = event.get("path")
+    if path_value is not None:
+        print(f"HCE_DEBUG=ENTER handler path={path_value}")
+    else:
+        print("HCE_DEBUG=ENTER handler")
     try:
         # Supporta invocazioni "dirette" (CLI) e HTTP (Lambda URL)
         if "requestContext" not in event:
@@ -1190,7 +1200,8 @@ def handler(event, context):
             deadline_filter = event.get("deadline_filter") or ""
             expected_type = event.get("expected_type") or event.get("doc_family")
             edf_filters = event.get("edf_filters") or {}
-            return _process_pdf_keys(
+            print("HCE_DEBUG=START parse")
+            result = _process_pdf_keys(
                 pdf_keys,
                 context=context,
                 call_types=call_types,
@@ -1201,6 +1212,17 @@ def handler(event, context):
                 expected_type=expected_type,
                 edf_filters=edf_filters,
             )
+            topics_count = 0
+            if isinstance(result, dict):
+                rows_count = result.get("rows_count")
+                if isinstance(rows_count, int):
+                    topics_count = rows_count
+                else:
+                    rows = result.get("rows")
+                    if isinstance(rows, list):
+                        topics_count = len(rows)
+            print(f"HCE_DEBUG=DONE parse topics={topics_count}")
+            return result
 
         method = event.get("requestContext", {}).get("http", {}).get("method", "GET")
         path = event.get("rawPath", "/")
@@ -1256,6 +1278,7 @@ def handler(event, context):
             deadline_filter = data.get("deadline_filter") or ""
             expected_type = data.get("expected_type") or data.get("doc_family")
             edf_filters = data.get("edf_filters") or {}
+            print("HCE_DEBUG=START parse")
             result = _process_pdf_keys(
                 pdf_keys,
                 context=context,
@@ -1267,6 +1290,16 @@ def handler(event, context):
                 expected_type=expected_type,
                 edf_filters=edf_filters,
             )
+            topics_count = 0
+            if isinstance(result, dict):
+                rows_count = result.get("rows_count")
+                if isinstance(rows_count, int):
+                    topics_count = rows_count
+                else:
+                    rows = result.get("rows")
+                    if isinstance(rows, list):
+                        topics_count = len(rows)
+            print(f"HCE_DEBUG=DONE parse topics={topics_count}")
             return _resp(200, _json(result))
 
         if method == "POST" and path == "/download":
