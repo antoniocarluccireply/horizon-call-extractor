@@ -188,8 +188,6 @@ def _normalize_title_text(s: str) -> str:
     s = re.sub(r"(?i)\bimprovingcapabilities\b", "Improving capabilities", s)
     s = re.sub(r"(?i)\baccessibleand\b", "Accessible and", s)
     s = re.sub(r"(?i)\bcrimeprevention\b", "Crime prevention", s)
-    s = re.sub(r"(?i)\bresp on ses\b", "responses", s)
-    s = re.sub(r"(?i)\bresp on se\b", "response", s)
 
     def _split_glued(match: re.Match) -> str:
         left = match.group(1)
@@ -212,14 +210,25 @@ def _normalize_title_text(s: str) -> str:
     return s.strip()
 
 
+def _finalize_title(title: str, topic_id: Optional[str]) -> str:
+    if not title:
+        return ""
+    if topic_id:
+        title = re.sub(rf"^\s*{re.escape(topic_id)}\s*:\s*", "", title)
+    title = re.sub(r"\bresp\s*on\s*ses\b", "responses", title, flags=re.IGNORECASE)
+    title = re.sub(r"\bresp\s*on\s*se\b", "response", title, flags=re.IGNORECASE)
+    title = re.sub(r"\btechnolo\s*gies\b", "technologies", title, flags=re.IGNORECASE)
+    title = re.sub(r"\bequip\s*ment\b", "equipment", title, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", title).strip()
+
+
 def _extract_title_from_detail(detail_block: Optional[str], topic_id: str) -> Optional[str]:
     if not detail_block or not topic_id:
         return None
     idx = detail_block.find(topic_id)
     if idx == -1:
         return None
-    start = idx + len(topic_id)
-    window = detail_block[start:start + 400]
+    window = detail_block[idx:idx + 400]
     if not window:
         return None
     m_stop = RE_DETAIL_TITLE_STOP.search(window)
@@ -233,10 +242,12 @@ def _extract_title_from_detail(detail_block: Optional[str], topic_id: str) -> Op
         flags=re.IGNORECASE,
     )
     cleaned = RE_TITLE_PROGRAMME_TITLE.sub("", cleaned)
+    cleaned = re.sub(rf"^\s*{re.escape(topic_id)}\s*:\s*", "", cleaned)
     cleaned = _normalize_title_text(cleaned)
     cleaned = _strip_title_page_markers(cleaned)
     cleaned = _trim_title_stop_phrases(_fix_inline_hyphen_spacing(cleaned))
-    return cleaned.strip() or None
+    cleaned = _finalize_title(cleaned, topic_id)
+    return cleaned or None
 
 
 def _fix_inline_hyphen_spacing(s: str) -> str:
@@ -777,6 +788,7 @@ def parse_calls(text: str) -> List[Dict]:
             title_clean = detail_title
         else:
             title_clean = summary_title_clean
+        title_clean = _finalize_title(title_clean, pending_topic_id)
 
         page = current_page or pending_page or title_page or current_cluster_page
         expected_text, scope_text = _extract_topic_description(pending_body)
@@ -796,6 +808,9 @@ def parse_calls(text: str) -> List[Dict]:
 
         if not current_call_id:
             current_call_id = _derive_call_id_from_topic(pending_topic_id)
+
+        if os.environ.get("HCE_DEBUG_SNAPSHOT") and pending_topic_id == "HORIZON-CL3-2026-01-DRS-03":
+            print(f"HCE_SNAPSHOT_TITLE id={pending_topic_id} title={title_clean}")
 
         if os.environ.get("HCE_SNAPSHOT_TITLE"):
             print(f"HCE_SNAPSHOT_TITLE id={pending_topic_id} title={title_clean}")
