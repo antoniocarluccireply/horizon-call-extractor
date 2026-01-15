@@ -32,6 +32,15 @@ RE_DOT_LEADER_PAGE = re.compile(r"\s\.{3,}\s*(\d{1,4})\s*$")
 
 RE_TITLE_PAGE_MARKER = re.compile(r"\bPart\s+\d+\s*-\s*Page\s+\d+\s+of\s+\d+\b", flags=re.IGNORECASE)
 RE_TITLE_WORK_PROGRAMME = re.compile(r"\bHorizon Europe\s*-\s*Work Programme\b.*", flags=re.IGNORECASE)
+RE_DESC_WORK_PROGRAMME = re.compile(
+    r"^\s*Horizon Europe\s*-\s*Work Programme\s*\d{4}\s*[-–]\s*\d{4}\s*$",
+    flags=re.IGNORECASE,
+)
+RE_DESC_PROGRAMME_TITLE = re.compile(r"^\s*Civil Security for Society\s*$", flags=re.IGNORECASE)
+RE_DESC_PAGE_MARKER = re.compile(
+    r"^\s*Part\s+\d+\s*-\s*Page\s+\d+\s+of\s+\d+\s*$",
+    flags=re.IGNORECASE,
+)
 
 # Numeric values with 1-3 decimals (EUR million in PDFs).
 RE_DECIMAL_NUMBER = r"\d+(?:\.\d{1,3})?"
@@ -103,6 +112,30 @@ def _format_topic_description(text: str) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = re.sub(r"([)\]])(\d{1,3})\b", r"\1[\2]", text)
     return text.strip()
+
+
+def _strip_header_footer_noise(text: str) -> str:
+    if not text:
+        return ""
+    text = str(text).replace("\r\n", "\n").replace("\r", "\n")
+    lines = text.split("\n")
+    cleaned_lines: List[str] = []
+    for line in lines:
+        candidate = line.strip()
+        if (
+            RE_DESC_WORK_PROGRAMME.match(candidate)
+            or RE_DESC_PROGRAMME_TITLE.match(candidate)
+            or RE_DESC_PAGE_MARKER.match(candidate)
+        ):
+            continue
+        if not candidate:
+            if cleaned_lines and cleaned_lines[-1] == "":
+                continue
+            cleaned_lines.append("")
+            continue
+        cleaned_lines.append(line)
+    cleaned = "\n".join(cleaned_lines).strip("\n")
+    return cleaned
 
 
 def _strip_title_page_markers(title: str) -> str:
@@ -722,7 +755,9 @@ def parse_calls(text: str) -> List[Dict]:
             topic_desc_parts.append(f"Expected Outcome: {expected_text}")
         if scope_text:
             topic_desc_parts.append(f"Scope: {scope_text}")
-        topic_desc = _format_topic_description("\n\n".join(topic_desc_parts)) or None
+        topic_desc_raw = "\n\n".join(topic_desc_parts)
+        topic_desc_clean = _strip_header_footer_noise(topic_desc_raw)
+        topic_desc = _format_topic_description(topic_desc_clean) or None
         trl_val = _extract_trl("\n".join(filter(None, [pending_body, topic_desc])))
 
         if not current_call_id:
