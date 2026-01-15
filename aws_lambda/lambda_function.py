@@ -1164,7 +1164,7 @@ def _coerce_bool(val):
     return None
 
 
-def log_version_marker(context):
+def log_version_marker(context=None):
     request_id = getattr(context, "aws_request_id", None) or "unknown"
     function_name = getattr(context, "function_name", None) or "unknown"
     print(
