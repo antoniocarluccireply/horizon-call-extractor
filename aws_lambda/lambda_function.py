@@ -1164,7 +1164,17 @@ def _coerce_bool(val):
     return None
 
 
+def log_version_marker(context):
+    request_id = getattr(context, "aws_request_id", None) or "unknown"
+    function_name = getattr(context, "function_name", None) or "unknown"
+    print(
+        "HCE_VERSION=2026-01-15_TRL_TITLE_DESC_FIX "
+        f"requestId={request_id} function={function_name}"
+    )
+
+
 def handler(event, context):
+    log_version_marker(context)
     try:
         # Supporta invocazioni "dirette" (CLI) e HTTP (Lambda URL)
         if "requestContext" not in event:
