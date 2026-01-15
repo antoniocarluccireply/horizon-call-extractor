@@ -842,7 +842,16 @@
 
     $("clear").onclick = () => { setFiles(state.activeTab, []); $("fileInput").value = ""; };
 
-    $("typeSummary").onclick = () => { $("typeMenu").style.display = $("typeMenu").style.display === "block" ? "none" : "block"; };
+    $("typeSummary").onclick = () => {
+      const menu = $("typeMenu");
+      const isOpen = menu.style.display === "block";
+      if(isOpen){
+        menu.style.display = "none";
+        return;
+      }
+      renderTypeList(state.activeTab);
+      menu.style.display = "block";
+    };
     $("typeAll").onclick = () => {
       const tab = state.activeTab;
       const names = state.tabs[tab].callTypes.map(o => o.name);
@@ -892,6 +901,8 @@
 
     $("tab-horizon").onclick = () => switchTab("horizon");
     $("tab-edf").onclick = () => switchTab("edf");
+
+    renderTypeList(state.activeTab);
 
     $("downloadBtn").onclick = () => {
       const dl = state.results[state.activeTab].downloadUrl;
