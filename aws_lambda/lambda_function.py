@@ -1299,6 +1299,46 @@ def handler(event, context):
                     rows = result.get("rows")
                     if isinstance(rows, list):
                         topics_count = len(rows)
+            if os.environ.get("HCE_DEBUG_SNAPSHOT") == "1":
+                snapshot_rows = result.get("rows") if isinstance(result, dict) else None
+                snapshot_row = None
+                if isinstance(snapshot_rows, list):
+                    for row in snapshot_rows:
+                        if not isinstance(row, dict):
+                            continue
+                        topic_id = row.get("topic_id") or row.get("id")
+                        if isinstance(topic_id, str) and topic_id == "HORIZON-CL3-2026-01-BM-01":
+                            snapshot_row = row
+                            break
+                    if snapshot_row is None:
+                        for row in snapshot_rows:
+                            if not isinstance(row, dict):
+                                continue
+                            topic_id = row.get("topic_id") or row.get("id")
+                            if isinstance(topic_id, str) and topic_id.startswith("HORIZON-CL3-2026-01-BM-01"):
+                                snapshot_row = row
+                                break
+                if snapshot_row:
+                    snapshot_id = snapshot_row.get("topic_id") or snapshot_row.get("id")
+                    snapshot_title = snapshot_row.get("topic_title") or snapshot_row.get("title")
+                    snapshot_trl = snapshot_row.get("trl")
+                    snapshot_desc = (
+                        snapshot_row.get("topic_description")
+                        or snapshot_row.get("summary")
+                        or snapshot_row.get("topic_description_verbatim")
+                    )
+                    snapshot_id = "null" if snapshot_id is None else str(snapshot_id)
+                    snapshot_title = "null" if snapshot_title is None else str(snapshot_title)
+                    snapshot_trl = "null" if snapshot_trl is None else str(snapshot_trl)
+                    if snapshot_desc is None:
+                        snapshot_desc = "null"
+                    else:
+                        snapshot_desc = str(snapshot_desc).replace("\r", " ").replace("\n", " ")
+                        snapshot_desc = snapshot_desc[:120]
+                    print(
+                        "HCE_SNAPSHOT "
+                        f"id={snapshot_id} title={snapshot_title} trl={snapshot_trl} desc={snapshot_desc}"
+                    )
             print(f"HCE_DEBUG=DONE parse topics={topics_count}")
             return _resp(200, _json(result))
 
