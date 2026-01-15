@@ -1084,21 +1084,26 @@ def _summarize_topics(rows: List[Dict], doc_type: str, context=None):
     if not OPENAI_API_KEY:
         for r in rows:
             r["summary"] = r.get("summary") or _fallback_summary_from_row(r, doc_type)
-        notice = "AI summary disabled: OPENAI_API_KEY not set"
-        return notice
+        return None
 
     max_topics = OPENAI_MAX_TOPICS if OPENAI_MAX_TOPICS > 0 else len(rows)
 
     n = 0
     for r in rows:
         if n >= max_topics:
-            notice = f"Summaries limited to first {max_topics} topics (OPENAI_MAX_TOPICS)."
+            notice = (
+                f"AI summaries are generated only for the first {max_topics} topics.\n"
+                "Parsing and Excel export still include all topics."
+            )
             break
 
         if context is not None:
             remaining_ms = context.get_remaining_time_in_millis()
             if remaining_ms is not None and remaining_ms < 8000:
-                notice = f"Summaries truncated: low remaining time ({remaining_ms}ms)."
+                notice = (
+                    "AI summaries stopped early due to limited remaining time.\n"
+                    "Parsing and Excel export still include all topics."
+                )
                 break
 
         if doc_type == DOC_HORIZON:

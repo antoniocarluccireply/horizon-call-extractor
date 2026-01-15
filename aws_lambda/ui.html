@@ -244,7 +244,7 @@
     .callline{ display:flex; align-items:center; gap: 8px; flex-wrap: wrap; }
     .callpill{ background:#d6c5a5; color:#2f241c; font-weight:700; }
     a.link{ color: var(--accent-strong); text-decoration:none; border-bottom: 1px dashed rgba(79,113,80,.55); }
-    .subtitle{ color: var(--text); font-weight:600; line-height:1.45; }
+    .subtitle{ color: var(--text); font-weight:600; line-height:1.45; width:100%; min-width:0; white-space: normal; overflow-wrap: break-word; word-break: break-word; }
     .small{ color: var(--muted2); font-size: 12px; }
     .hint{ color: var(--muted2); font-size: 12px; margin-top: 4px; }
     .accordion{ border:1px solid #decfbd; border-radius: 12px; background:#fdfbf7; }
@@ -288,14 +288,22 @@
     .modal-details{ display: none; background: #f9f6f1; border: 1px solid #e8ddcf; border-radius: 12px; padding: 10px; margin-top: 6px; white-space: pre-wrap; font-family: "SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace; font-size: 12px; color: #3c2c21; }
     .notice{
       margin: 6px 0 0;
-      padding: 8px 10px;
+      padding: 6px 8px;
       border-radius: 10px;
-      background: #f9f6f1;
+      background: #f7f4ee;
       border: 1px solid #e6dbcd;
       color: #594a36;
       font-size: 12px;
-      font-weight: 700;
+      font-weight: 500;
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
     }
+    .notice .info-icon{ flex: 0 0 auto; line-height: 1.2; }
+    .notice .info-main{ font-weight: 600; color: #4a3c2c; }
+    .notice .info-sub{ color: var(--muted2); font-size: 11px; margin-top: 2px; }
+    .filter-calltypes.disabled{ opacity: 0.5; pointer-events: none; }
+    .filter-calltypes.disabled .textinput{ cursor: not-allowed; }
     @media (max-width: 520px){
       .modal-card{ padding: 16px; border-radius: 16px; }
       .modal-title{ font-size: 16px; }
@@ -338,7 +346,7 @@
       <p class="hint">We automatically detect whether the PDF is Horizon or EDF to avoid mixing documents.</p>
 
       <div class="filters" id="filters">
-        <div class="filter-item filter-calltypes">
+        <div class="filter-item filter-calltypes" id="callTypesFilter">
           <div class="filterlabel">Call types</div>
           <div class="textinput clickable" id="typeSummary">All types</div>
           <div class="hint">Multi-select call types. Same UI for Horizon and EDF.</div>
@@ -424,14 +432,26 @@
     <div class="card results active" id="results-horizon">
       <h3>Horizon table</h3>
       <p class="hint">Preview columns: Topic ID (clickable), Min Budget per Project (M€), Opening Date, Deadline Date. Funding percentage is shown next to the call type.</p>
-      <div class="notice" id="aiNotice-horizon" style="display:none;"></div>
+      <div class="notice" id="aiNotice-horizon" style="display:none;">
+        <span class="info-icon">ℹ️</span>
+        <div class="info-text">
+          <div class="info-main"></div>
+          <div class="info-sub"></div>
+        </div>
+      </div>
       <div class="table" id="table-horizon"></div>
     </div>
 
     <div class="card results" id="results-edf">
       <h3>EDF table</h3>
       <p class="hint">Same UI and columns as Horizon. Topic IDs link to Funding &amp; Tenders. Funding % is displayed only when explicitly stated in the PDF.</p>
-      <div class="notice" id="aiNotice-edf" style="display:none;"></div>
+      <div class="notice" id="aiNotice-edf" style="display:none;">
+        <span class="info-icon">ℹ️</span>
+        <div class="info-text">
+          <div class="info-main"></div>
+          <div class="info-sub"></div>
+        </div>
+      </div>
       <div class="table" id="table-edf"></div>
     </div>
   </div>
@@ -649,6 +669,16 @@
       $("deadlineClear").disabled = state.busy || !deadlineVal;
     }
 
+    function setCallTypeDisabled(disabled){
+      const filter = $("callTypesFilter");
+      filter.classList.toggle("disabled", disabled);
+      $("typeSummary").setAttribute("aria-disabled", disabled ? "true" : "false");
+      $("typeSummary").tabIndex = disabled ? -1 : 0;
+      if(disabled){
+        $("typeMenu").style.display = "none";
+      }
+    }
+
     function syncDateInputs(tab = state.activeTab){
       $("openFilter").value = state.tabs[tab].openingFilter || "";
       $("deadlineFilter").value = state.tabs[tab].deadlineFilter || "";
@@ -754,12 +784,13 @@
       $("budget").disabled = busy;
       $("openFilter").disabled = busy;
       $("deadlineFilter").disabled = busy;
+      setCallTypeDisabled(busy);
       updateDateClearButtons(state.activeTab);
     }
 
     function setFiles(tab, files){
       state.tabs[tab].files = files || [];
-      state.results[tab] = { rows: [], downloadUrl: null, rowsCount: 0 };
+      state.results[tab] = { rows: [], downloadUrl: null, rowsCount: 0, summaryNotice: "" };
       $("downloadBtn").style.display = "none";
       $("kpi").style.display = "none";
       stopProcessDrift();
@@ -857,6 +888,7 @@
     $("clear").onclick = () => { setFiles(state.activeTab, []); $("fileInput").value = ""; };
 
     $("typeSummary").onclick = () => {
+      if(state.busy) return;
       const menu = $("typeMenu");
       const isOpen = menu.style.display === "block";
       if(isOpen){
@@ -931,9 +963,18 @@
       dlBtn.style.display = res.downloadUrl ? "inline-flex" : "none";
       dlBtn.classList.toggle("success", Boolean(res.downloadUrl));
       const noticeEl = tab === "horizon" ? $("aiNotice-horizon") : $("aiNotice-edf");
-      if(res.summaryNotice){
-        noticeEl.textContent = res.summaryNotice;
-        noticeEl.style.display = "block";
+      const noticeText = (res.summaryNotice || "").trim();
+      if(noticeText){
+        const [main, ...rest] = noticeText.split("\n");
+        const mainEl = noticeEl.querySelector(".info-main");
+        const subEl = noticeEl.querySelector(".info-sub");
+        if(mainEl) mainEl.textContent = main.trim();
+        const subText = rest.join("\n").trim();
+        if(subEl){
+          subEl.textContent = subText;
+          subEl.style.display = subText ? "block" : "none";
+        }
+        noticeEl.style.display = "flex";
       } else {
         noticeEl.style.display = "none";
       }
