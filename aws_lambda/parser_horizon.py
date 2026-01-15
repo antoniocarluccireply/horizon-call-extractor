@@ -46,6 +46,10 @@ RE_TITLE_SECTION_HEADER = re.compile(
     r"^(Call:|Specific conditions|Expected Outcome:?|Scope:?|Indicative budget|Type of Action|Eligibility conditions|Technology Readiness Level|Legal and financial set-up|Security Sensitive Topics)\b",
     flags=re.IGNORECASE,
 )
+RE_DETAIL_TITLE_STOP = re.compile(
+    r"\b(Call:|Specific conditions|Expected Outcome:?|Scope:?|Indicative budget|Type of Action|Eligibility conditions|Technology Readiness Level|Legal and financial set-up|Security Sensitive Topics)\b",
+    flags=re.IGNORECASE,
+)
 
 # Numeric values with 1-3 decimals (EUR million in PDFs).
 RE_DECIMAL_NUMBER = r"\d+(?:\.\d{1,3})?"
@@ -206,6 +210,33 @@ def _normalize_title_text(s: str) -> str:
     # Collapse multiple spaces
     s = re.sub(r"\s+", " ", s)
     return s.strip()
+
+
+def _extract_title_from_detail(detail_block: Optional[str], topic_id: str) -> Optional[str]:
+    if not detail_block or not topic_id:
+        return None
+    idx = detail_block.find(topic_id)
+    if idx == -1:
+        return None
+    start = idx + len(topic_id)
+    window = detail_block[start:start + 400]
+    if not window:
+        return None
+    m_stop = RE_DETAIL_TITLE_STOP.search(window)
+    if m_stop:
+        window = window[:m_stop.start()]
+    cleaned = RE_TITLE_PAGE_MARKER.sub("", window)
+    cleaned = re.sub(
+        r"\bHorizon Europe\s*-\s*Work Programme\s*\d{4}\s*[-–]\s*\d{4}\b",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = RE_TITLE_PROGRAMME_TITLE.sub("", cleaned)
+    cleaned = _normalize_title_text(cleaned)
+    cleaned = _strip_title_page_markers(cleaned)
+    cleaned = _trim_title_stop_phrases(_fix_inline_hyphen_spacing(cleaned))
+    return cleaned.strip() or None
 
 
 def _fix_inline_hyphen_spacing(s: str) -> str:
@@ -735,11 +766,17 @@ def parse_calls(text: str) -> List[Dict]:
         if not pending_topic_id:
             return
 
-        title_raw = _normalize_title_text(_join_title_parts(pending_title_parts))
-        title_raw = _strip_title_page_markers(title_raw)
-        title_clean, title_page = _strip_dot_leader_page(title_raw)
-        title_clean = _trim_title_stop_phrases(_fix_inline_hyphen_spacing(title_clean))
-        title_clean = _strip_title_page_markers(title_clean)
+        summary_title_raw = _normalize_title_text(_join_title_parts(pending_title_parts))
+        summary_title_raw = _strip_title_page_markers(summary_title_raw)
+        summary_title_clean, title_page = _strip_dot_leader_page(summary_title_raw)
+        summary_title_clean = _trim_title_stop_phrases(_fix_inline_hyphen_spacing(summary_title_clean))
+        summary_title_clean = _strip_title_page_markers(summary_title_clean)
+
+        detail_title = _extract_title_from_detail(pending_body, pending_topic_id)
+        if detail_title and len(detail_title) >= 30:
+            title_clean = detail_title
+        else:
+            title_clean = summary_title_clean
 
         page = current_page or pending_page or title_page or current_cluster_page
         expected_text, scope_text = _extract_topic_description(pending_body)
@@ -759,6 +796,9 @@ def parse_calls(text: str) -> List[Dict]:
 
         if not current_call_id:
             current_call_id = _derive_call_id_from_topic(pending_topic_id)
+
+        if os.environ.get("HCE_SNAPSHOT_TITLE"):
+            print(f"HCE_SNAPSHOT_TITLE id={pending_topic_id} title={title_clean}")
 
         row = {
             "cluster": current_cluster,
