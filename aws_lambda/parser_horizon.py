@@ -2,6 +2,8 @@ import os
 import re
 from typing import Dict, List, Optional, Tuple
 
+from text_normalize import normalize_pdf_text
+
 ACTION_TYPES = {
     "RIA",
     "IA",
@@ -104,19 +106,6 @@ def _norm(s: str) -> str:
 
 def _normalize_ws(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
-
-
-def normalize_pdf_text(s: str) -> str:
-    if not s:
-        return ""
-    text = str(s).replace("\u00a0", " ").replace("\u00ad", "")
-    text = re.sub(r"\b(\w+)\s*-\s*(\w+)\b", r"\1-\2", text)
-    text = re.sub(r"\bresp\s*on\s*ses\b", "responses", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bresp\s*on\s*ders\b", "responders", text, flags=re.IGNORECASE)
-    text = re.sub(r"\benvir\s*on\s*ments\b", "environments", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bpers\s*on\s*alised\b", "personalised", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bpers\s*on\s*alized\b", "personalized", text, flags=re.IGNORECASE)
-    return re.sub(r"\s+", " ", text).strip()
 
 
 def strip_headers_footers_lines(lines: List[str]) -> List[str]:
@@ -874,10 +863,13 @@ def parse_calls(text: str) -> List[Dict]:
         else:
             title_clean = summary_title_clean
         title_clean = _finalize_title(title_clean, pending_topic_id)
+        title_clean = normalize_pdf_text(title_clean)
 
         page = current_page or pending_page or title_page or current_cluster_page
         expected_text, scope_text = _extract_topic_description(pending_body)
         topic_desc = _build_topic_description(expected_text, scope_text)
+        if topic_desc:
+            topic_desc = normalize_pdf_text(topic_desc, preserve_newlines=True)
         trl_val = _extract_trl("\n".join(filter(None, [pending_body, topic_desc])))
 
         if not current_call_id:

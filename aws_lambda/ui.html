@@ -235,7 +235,7 @@
     .results{ display:none; }
     .results.active{ display:block; }
     .table{ margin-top: 10px; display: grid; gap: 10px; }
-    .row-card{ border:1px solid #e0d7c9; background:#f9f6f1; border-radius: 14px; padding: 12px; display:grid; gap: 8px; overflow-wrap:anywhere; }
+    .row-card{ border:1px solid #e0d7c9; background:#f9f6f1; border-radius: 14px; padding: 12px; display:grid; gap: 8px; overflow-wrap:anywhere; width:100%; min-width:0; }
     .row-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px 12px; }
     .cell{ display:flex; flex-direction:column; gap:4px; }
     .label{ color: var(--muted2); font-size: 11px; letter-spacing:.2px; text-transform: uppercase; }
@@ -255,9 +255,9 @@
     .rawtext{ white-space: pre-wrap; font-family: "SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace; font-size: 13px; color:#2f241c; }
     .desc-summary{ display:flex; gap: 8px; flex-wrap: wrap; align-items:center; }
     .desc-preview{ color: var(--muted2); font-size: 12px; font-weight: 500; }
-    .desc-body{ white-space: pre-wrap; line-height:1.35; font-size: 13px; color:#2f241c; width:100%; word-break: break-word; }
-    .summary-block{ display:flex; flex-direction:column; gap:4px; width:100%; }
-    .summary-text{ color: var(--muted2); font-size: 13px; line-height:1.45; white-space: pre-wrap; width:100%; word-break: break-word; }
+    .desc-body{ white-space: pre-wrap; line-height:1.35; font-size: 13px; color:#2f241c; width:100%; min-width:0; word-break: break-word; overflow-wrap:anywhere; }
+    .summary-block{ display:flex; flex-direction:column; gap:4px; width:100%; min-width:0; }
+    .summary-text{ color: var(--muted2); font-size: 13px; line-height:1.45; white-space: pre-wrap; width:100%; min-width:0; word-break: break-word; overflow-wrap:anywhere; }
     .summary-text.expanded{ -webkit-line-clamp: unset; max-height:none; }
     .summary-text.desc-preview{ display:block; -webkit-line-clamp: unset; max-height:none; }
     .summary-toggle{ background:none; border:none; color: var(--accent-strong); font-weight:700; font-size:12px; cursor:pointer; padding:0; align-self:flex-start; }
