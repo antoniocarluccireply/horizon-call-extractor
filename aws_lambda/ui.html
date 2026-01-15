@@ -560,10 +560,13 @@
         scope = full.slice(scopeMatch.index + scopeMatch[0].length).trim();
       }
       expected = expected.replace(/^Expected Outcome:?\s*/i, "").trim();
-      const expectedLines = expected.split(/\n+/).filter(Boolean);
-      const previewLines = expectedLines.slice(0, Math.max(2, Math.min(4, expectedLines.length || 2)));
-      const basePreview = (previewLines.join("\n") || expected || full).trim();
-      const preview = expected ? `Expected Outcome: ${basePreview}` : basePreview;
+      const basePreview = (expected || full).replace(/\s+/g, " ").trim();
+      const maxPreview = 240;
+      let previewText = basePreview;
+      if(previewText.length > maxPreview){
+        previewText = previewText.slice(0, maxPreview).replace(/\s+\S*$/, "").trim() + "…";
+      }
+      const preview = expected ? `Expected Outcome: ${previewText}` : previewText;
       return { full, preview, expected, scope };
     }
 

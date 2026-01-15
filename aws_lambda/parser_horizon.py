@@ -30,6 +30,9 @@ RE_PAGE_MARKER = re.compile(r"^<<<PAGE\s+(\d+)>>>$")
 
 RE_DOT_LEADER_PAGE = re.compile(r"\s\.{3,}\s*(\d{1,4})\s*$")
 
+RE_TITLE_PAGE_MARKER = re.compile(r"\bPart\s+\d+\s*-\s*Page\s+\d+\s+of\s+\d+\b", flags=re.IGNORECASE)
+RE_TITLE_WORK_PROGRAMME = re.compile(r"\bHorizon Europe\s*-\s*Work Programme\b.*", flags=re.IGNORECASE)
+
 # Numeric values with 1-3 decimals (EUR million in PDFs).
 RE_DECIMAL_NUMBER = r"\d+(?:\.\d{1,3})?"
 
@@ -55,6 +58,12 @@ STOP_TITLE_MARKERS = (
     "expected outcome",
     "scope",
     "funding opportunities",
+    "call:",
+    "indicative budget",
+    "type of action",
+    "technology readiness level",
+    "legal and financial set-up",
+    "security sensitive topics",
 )
 
 def _norm(s: str) -> str:
@@ -77,6 +86,31 @@ def _norm(s: str) -> str:
 
 def _normalize_ws(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
+
+
+def _format_topic_description(text: str) -> str:
+    if not text:
+        return ""
+    text = str(text).replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"(?<!\n)\s+•\s+", "\n• ", text)
+    text = re.sub(r"(?<!^)(?<!\n)•\s+", "\n• ", text)
+    lines = text.split("\n")
+    cleaned_lines = []
+    for line in lines:
+        cleaned = re.sub(r"[ \t]+", " ", line.strip())
+        cleaned_lines.append(cleaned)
+    text = "\n".join(cleaned_lines)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"([)\]])(\d{1,3})\b", r"\1[\2]", text)
+    return text.strip()
+
+
+def _strip_title_page_markers(title: str) -> str:
+    if not title:
+        return title
+    cleaned = RE_TITLE_PAGE_MARKER.sub("", title)
+    cleaned = RE_TITLE_WORK_PROGRAMME.sub("", cleaned)
+    return _normalize_ws(cleaned)
 
 
 def _normalize_title_text(s: str) -> str:
@@ -111,6 +145,8 @@ def _normalize_title_text(s: str) -> str:
     s = re.sub(r"(?i)\bimprovingcapabilities\b", "Improving capabilities", s)
     s = re.sub(r"(?i)\baccessibleand\b", "Accessible and", s)
     s = re.sub(r"(?i)\bcrimeprevention\b", "Crime prevention", s)
+    s = re.sub(r"(?i)\bresp on ses\b", "responses", s)
+    s = re.sub(r"(?i)\bresp on se\b", "response", s)
 
     def _split_glued(match: re.Match) -> str:
         left = match.group(1)
@@ -502,11 +538,11 @@ def _extract_topic_description(body_text: Optional[str]) -> Tuple[Optional[str],
     if not body_text:
         return None, None
 
-    raw_lines = [ln for ln in str(body_text).splitlines() if ln.strip()]
+    raw_lines = str(body_text).splitlines()
     lines = []
     for ln in raw_lines:
         normalized = _norm(ln)
-        if not normalized or RE_PAGE_MARKER.match(normalized):
+        if RE_PAGE_MARKER.match(normalized):
             continue
         lines.append((ln, normalized))
     if not lines:
@@ -582,7 +618,7 @@ def _extract_topic_description(body_text: Optional[str]) -> Tuple[Optional[str],
                 break
             collected.append(raw_ln)
             i += 1
-        text = _normalize_ws(" ".join(collected))
+        text = "\n".join(collected).strip()
         return text or None
 
     expected_end = scope_idx if scope_idx is not None else None
@@ -652,7 +688,14 @@ def parse_calls(text: str) -> List[Dict]:
             "general conditions relating to this call",
         )
         low = ln.lower()
-        return any(k in low for k in stop_keywords) or any(m in low for m in STOP_TITLE_MARKERS)
+        return (
+            bool(RE_PAGE_MARKER.match(ln))
+            or bool(RE_TITLE_PAGE_MARKER.search(ln))
+            or bool(RE_TITLE_WORK_PROGRAMME.search(ln))
+            or any(k in low for k in stop_keywords)
+            or any(m in low for m in STOP_TITLE_MARKERS)
+            or bool(re.match(r"(?i)^(Call|Expected Outcome|Scope|Indicative budget|Type of Action|Technology Readiness Level|Legal and financial set-up|Security Sensitive Topics)\b", ln))
+        )
 
     def flush_topic():
         nonlocal pending_topic_id, pending_title_parts, pending_description_parts, pending_body, pending_page
@@ -663,17 +706,23 @@ def parse_calls(text: str) -> List[Dict]:
             return
 
         title_raw = _normalize_title_text(_join_title_parts(pending_title_parts))
+        title_raw = _strip_title_page_markers(title_raw)
         title_clean, title_page = _strip_dot_leader_page(title_raw)
         title_clean = _trim_title_stop_phrases(_fix_inline_hyphen_spacing(title_clean))
+        title_clean = _strip_title_page_markers(title_clean)
 
         page = current_page or pending_page or title_page or current_cluster_page
         expected_text, scope_text = _extract_topic_description(pending_body)
+        if expected_text:
+            expected_text = _format_topic_description(expected_text)
+        if scope_text:
+            scope_text = _format_topic_description(scope_text)
         topic_desc_parts: List[str] = []
         if expected_text:
             topic_desc_parts.append(f"Expected Outcome: {expected_text}")
         if scope_text:
             topic_desc_parts.append(f"Scope: {scope_text}")
-        topic_desc = "\n\n".join(topic_desc_parts).strip() or None
+        topic_desc = _format_topic_description("\n\n".join(topic_desc_parts)) or None
         trl_val = _extract_trl("\n".join(filter(None, [pending_body, topic_desc])))
 
         if not current_call_id:
@@ -933,3 +982,11 @@ if __name__ == "__main__":
             print("Debug BM-01 description (200 chars):", desc[:200])
         else:
             print("Debug BM-01: topic not found.")
+
+        drs_match = next((r for r in rows if r.get("topic_id") == "HORIZON-CL3-2026-01-DRS-03"), None)
+        if drs_match:
+            desc = drs_match.get("topic_description") or ""
+            print("Debug DRS-03 title:", drs_match.get("topic_title"))
+            print("Debug DRS-03 description (120 chars):", desc[:120])
+        else:
+            print("Debug DRS-03: topic not found.")
