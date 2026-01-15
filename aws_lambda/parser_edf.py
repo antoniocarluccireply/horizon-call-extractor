@@ -1,6 +1,8 @@
 import re
 from typing import Dict, List, Optional
 
+from text_normalize import normalize_pdf_text
+
 CALL_FAMILY_LABELS = {
     "RA": "RA — Research Actions",
     "DA": "DA — Development Actions",
@@ -24,7 +26,6 @@ RE_CALL = re.compile(r"\b(EDF-\d{4}-[A-Z]{2,})\b", flags=re.IGNORECASE)
 TOC_START = re.compile(r"\bTable of contents\b", re.IGNORECASE)
 TOC_END = re.compile(r"^\s*1\.\s*Content of the document\b", re.IGNORECASE)
 
-_STOPWORDS = {"of", "in", "on", "to", "by", "an", "or", "if", "at", "be", "is", "it", "we", "il", "la", "le", "un", "una"}
 BAD_TITLE_HINTS = [
     "SENSITIVE UNTIL ADOPTION",
     "Content of the document",
@@ -88,28 +89,12 @@ def _extract_budget(line: str) -> Optional[float]:
     return _to_millions(m.group(1))
 
 
-def _repair_broken_words(title: str) -> str:
-    """
-    Fix split words caused by PDF line breaks without hyphens, e.g. "mo dels" -> "models".
-    We only merge when the first fragment is very short and not a common standalone word to avoid false positives.
-    """
-    def repl(match: re.Match) -> str:
-        first = match.group(1)
-        second = match.group(2)
-        if len(first) <= 2 and first.lower() not in _STOPWORDS and first.isalpha() and first.islower() and second.isalpha() and second.islower():
-            return first + second
-        return match.group(0)
-
-    return re.sub(r"\b([A-Za-z]{1,3})\s+([a-z]{3,})\b", repl, title)
-
-
 def _clean_title(title: str) -> str:
-    cleaned = _norm(title)
+    cleaned = normalize_pdf_text(title)
     if not cleaned:
         return ""
     cleaned = re.sub(r"\.{2,}\s*\d*\s*$", "", cleaned)  # strip dotted leaders and trailing page numbers
     cleaned = cleaned.strip(" .-–")
-    cleaned = _repair_broken_words(cleaned)
     return cleaned
 
 
@@ -389,6 +374,11 @@ def parse_edf(text: str) -> List[Dict]:
         t["record_level"] = t.get("record_level") or "TOPIC"
         if "title" not in t:
             t["title"] = t.get("topic_title") or t.get("call_id") or t.get("topic_id")
+        if t.get("topic_description_verbatim"):
+            t["topic_description_verbatim"] = normalize_pdf_text(
+                t.get("topic_description_verbatim", ""),
+                preserve_newlines=True,
+            )
         t["is_large_scale"] = _is_large_scale(call_id, topic_id, t.get("title", ""), t.get("topic_description_verbatim", ""))
 
     return records
