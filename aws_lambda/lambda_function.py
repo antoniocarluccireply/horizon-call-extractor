@@ -177,12 +177,19 @@ def _derive_call_round_from_topic_id(topic_id: Optional[str]) -> Optional[str]:
 def _extract_trl_from_text(text: Optional[str]) -> Optional[str]:
     if not text:
         return None
-    m = re.search(r"TRL\s*(\d)(?:\s*(?:[-–]|to)\s*(\d))?", str(text), flags=re.IGNORECASE)
-    if not m:
-        return None
-    start = m.group(1)
-    end = m.group(2)
-    return f"{start}-{end}" if end else start
+    normalized = re.sub(r"\s+", " ", str(text)).strip()
+    patterns = [
+        r"\bTRL\b\s*(\d+(?:\s*[-–—]\s*\d+)?)",
+        r"technology\s+readiness\s+level\s*[:\-]?\s*(\d+(?:\s*[-–—]\s*\d+)?)",
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, normalized, flags=re.IGNORECASE)
+        if not m:
+            continue
+        raw_val = m.group(1)
+        cleaned = re.sub(r"\s*[-–—]\s*", "-", raw_val).strip()
+        return cleaned
+    return None
 
 
 def _edf_call_family_from_id(call_id: Optional[str]) -> Optional[str]:

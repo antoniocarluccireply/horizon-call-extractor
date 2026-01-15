@@ -1,3 +1,4 @@
+import os
 import re
 from typing import Dict, List, Optional, Tuple
 
@@ -138,6 +139,22 @@ def _fix_inline_hyphen_spacing(s: str) -> str:
         return s
     return re.sub(r"(\w)\s+-([A-Za-z0-9])", r"\1-\2", s)
 
+
+def _join_title_parts(parts: List[str]) -> str:
+    joined = ""
+    for part in parts:
+        piece = _norm(part)
+        if not piece:
+            continue
+        if not joined:
+            joined = piece
+            continue
+        if joined.endswith("-"):
+            joined = f"{joined}{piece}"
+        else:
+            joined = f"{joined} {piece}"
+    return joined.strip()
+
 def _strip_dot_leader_page(s: str) -> Tuple[str, Optional[int]]:
     if not s:
         return s, None
@@ -214,14 +231,19 @@ def _derive_stage(topic_id: Optional[str], current_stage: Optional[str]) -> Opti
 def _extract_trl(text: Optional[str]) -> Optional[str]:
     if not text:
         return None
-    m = re.search(r"TRL\s*(\d)(?:\s*(?:[-–]|to)\s*(\d))?", text, flags=re.IGNORECASE)
-    if not m:
-        return None
-    start = m.group(1)
-    end = m.group(2)
-    if end:
-        return f"{start}-{end}"
-    return start
+    normalized = _norm(str(text))
+    patterns = [
+        r"\bTRL\b\s*(\d+(?:\s*[-–—]\s*\d+)?)",
+        r"technology\s+readiness\s+level\s*[:\-]?\s*(\d+(?:\s*[-–—]\s*\d+)?)",
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, normalized, flags=re.IGNORECASE)
+        if not m:
+            continue
+        raw_val = m.group(1)
+        cleaned = re.sub(r"\s*[-–—]\s*", "-", raw_val).strip()
+        return cleaned
+    return None
 
 
 def _merge_split_identifier_lines(lines: List[str]) -> List[str]:
@@ -435,6 +457,10 @@ def _extract_topic_description(body_text: Optional[str]) -> Tuple[Optional[str],
     def _is_stop(ln: str) -> bool:
         low = ln.lower()
         stop_prefixes = (
+            "actions funded under this topic",
+            "indicative budget",
+            "technology readiness level",
+            "legal and financial set-up",
             "specific conditions",
             "type of action",
             "general conditions",
@@ -448,8 +474,23 @@ def _extract_topic_description(body_text: Optional[str]) -> Tuple[Optional[str],
         return any(low.startswith(p) for p in stop_prefixes) or any(low.startswith(m) for m in STOP_TITLE_MARKERS)
 
     expected_idx = None
+    expected_inline = None
     scope_idx = None
+    scope_inline = None
     for idx, ln in enumerate(lines):
+        if expected_idx is None:
+            m_expected = re.match(r"(?i)expected outcomes?:?\s*(.*)$", ln)
+            if m_expected:
+                expected_idx = idx
+                expected_inline = m_expected.group(1).strip() or None
+                continue
+        if scope_idx is None:
+            m_scope = re.match(r"(?i)scope:?\s*(.*)$", ln)
+            if m_scope:
+                scope_idx = idx
+                scope_inline = m_scope.group(1).strip() or None
+                continue
+
         low = ln.lower()
         if expected_idx is None and re.match(r"expected outcomes?:?", low):
             expected_idx = idx
@@ -458,10 +499,12 @@ def _extract_topic_description(body_text: Optional[str]) -> Tuple[Optional[str],
             scope_idx = idx
             continue
 
-    def _collect(start_idx: Optional[int], end_idx: Optional[int]) -> Optional[str]:
+    def _collect(start_idx: Optional[int], end_idx: Optional[int], inline: Optional[str]) -> Optional[str]:
         if start_idx is None or start_idx >= len(lines):
             return None
         collected: List[str] = []
+        if inline:
+            collected.append(inline)
         i = start_idx
         while i < len(lines):
             ln = lines[i]
@@ -479,8 +522,8 @@ def _extract_topic_description(body_text: Optional[str]) -> Tuple[Optional[str],
         return text or None
 
     expected_end = scope_idx if scope_idx is not None else None
-    expected_text = _collect(expected_idx, expected_end)
-    scope_text = _collect(scope_idx, None)
+    expected_text = _collect(expected_idx, expected_end, expected_inline)
+    scope_text = _collect(scope_idx, None, scope_inline)
 
     if not expected_text and not scope_text:
         return None, None
@@ -553,7 +596,7 @@ def parse_calls(text: str) -> List[Dict]:
         if not pending_topic_id:
             return
 
-        title_raw = _normalize_title_text("\n".join(pending_title_parts))
+        title_raw = _normalize_title_text(_join_title_parts(pending_title_parts))
         title_clean, title_page = _strip_dot_leader_page(title_raw)
         title_clean = _trim_title_stop_phrases(_fix_inline_hyphen_spacing(title_clean))
 
@@ -565,8 +608,6 @@ def parse_calls(text: str) -> List[Dict]:
         if scope_text:
             topic_desc_parts.append(f"Scope:\n{scope_text}")
         topic_desc = "\n\n".join(topic_desc_parts).strip() or None
-        if not topic_desc:
-            topic_desc = "\n".join(pending_description_parts).strip() or None
         trl_val = _extract_trl("\n".join(filter(None, [pending_body, topic_desc])))
 
         if not current_call_id:
@@ -803,3 +844,26 @@ def _run_overview_sanity_checks() -> None:
 if __name__ == "__main__":
     _run_overview_sanity_checks()
     print("Overview parsing sanity checks passed.")
+
+    sample_path = os.environ.get("HORIZON_DEBUG_PDF", "").strip()
+    if sample_path and os.path.exists(sample_path):
+        from pypdf import PdfReader
+
+        def _extract_text_for_debug(pdf_path: str) -> str:
+            reader = PdfReader(pdf_path)
+            chunks = []
+            for idx, p in enumerate(reader.pages, start=1):
+                chunks.append(f"\n<<<PAGE {idx}>>>\n")
+                chunks.append(p.extract_text() or "")
+            return "\n".join(chunks)
+
+        text = _extract_text_for_debug(sample_path)
+        rows = parse_calls(text)
+        match = next((r for r in rows if r.get("topic_id") == "HORIZON-CL3-2026-01-BM-01"), None)
+        if match:
+            print("Debug BM-01 title:", match.get("topic_title"))
+            print("Debug BM-01 TRL:", match.get("trl"))
+            desc = match.get("topic_description") or ""
+            print("Debug BM-01 description (200 chars):", desc[:200])
+        else:
+            print("Debug BM-01: topic not found.")
