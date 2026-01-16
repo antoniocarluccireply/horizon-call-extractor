@@ -2,14 +2,14 @@ import { normalizeTopicText } from "./normalizeTopicText";
 
 export type InlineToken =
   | { kind: "text"; text: string }
-  | { kind: "footnoteRef"; index: number };
+  | { kind: "ref"; index: number; rawId: string };
 
 export type Block =
   | { kind: "paragraph"; tokens: InlineToken[] }
   | { kind: "list"; items: InlineToken[][] }
   | {
       kind: "references";
-      items: { index: number; rawId: string; url?: string }[];
+      items: { index: number; rawId: string; url?: string; text?: string }[];
     };
 
 type FootnoteState = {
@@ -18,6 +18,8 @@ type FootnoteState = {
 };
 
 const footnoteRegex = /([A-Za-z)])(\d{3,})(?=[^0-9A-Za-z]|$)/g;
+const referenceLineRegex =
+  /^\s*\[?(\d{3,})\]?\s*(?:(.+?)\s*:)?\s*(https?:\/\/\S+)\s*$/i;
 
 function getFootnoteIndex(rawId: string, state: FootnoteState): number {
   const existing = state.map.get(rawId);
@@ -42,7 +44,11 @@ function tokenizeInline(text: string, state: FootnoteState): InlineToken[] {
     if (leadingText) {
       tokens.push({ kind: "text", text: leadingText });
     }
-    tokens.push({ kind: "footnoteRef", index: getFootnoteIndex(rawId, state) });
+    tokens.push({
+      kind: "ref",
+      index: getFootnoteIndex(rawId, state),
+      rawId,
+    });
     lastIndex = prefixEnd + rawId.length;
   }
   if (lastIndex < text.length) {
@@ -58,35 +64,26 @@ export function topicDescriptionBlocks(input: string): Block[] {
   }
 
   const lines = normalized.split("\n");
-  const referenceLines: string[] = [];
-  let endIndex = lines.length - 1;
-  while (endIndex >= 0 && !lines[endIndex].trim()) {
-    endIndex -= 1;
-  }
-  while (endIndex >= 0) {
-    const trimmed = lines[endIndex].trim();
-    if (!trimmed) {
-      endIndex -= 1;
-      continue;
-    }
-    if (/^\d+\s+https?:\/\/\S+/.test(trimmed)) {
-      referenceLines.unshift(trimmed);
-      endIndex -= 1;
-      continue;
-    }
-    break;
-  }
+  const referenceMap = new Map<string, { url?: string; text?: string }>();
+  const workingLines: string[] = [];
 
-  const referenceMap = new Map<string, string>();
-  referenceLines.forEach((line) => {
-    const match = line.match(/^(\d+)\s+(https?:\/\/\S+)/);
-    if (!match) {
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      workingLines.push(line);
       return;
     }
-    referenceMap.set(match[1], match[2]);
+    const match = trimmed.match(referenceLineRegex);
+    if (match) {
+      const [, rawId, text, url] = match;
+      referenceMap.set(rawId, { url, text: text?.trim() || undefined });
+      return;
+    }
+    if (/^\d{3,}\s+https?:\/\/\S+/i.test(trimmed)) {
+      return;
+    }
+    workingLines.push(line);
   });
-
-  const workingLines = lines.slice(0, endIndex + 1);
   const blocks: Block[] = [];
   let paragraphLines: string[] = [];
   let listItems: InlineToken[][] = [];
@@ -101,7 +98,10 @@ export function topicDescriptionBlocks(input: string): Block[] {
     if (!text) {
       return;
     }
-    blocks.push({ kind: "paragraph", tokens: tokenizeInline(text, footnoteState) });
+    blocks.push({
+      kind: "paragraph",
+      tokens: tokenizeInline(text, footnoteState),
+    });
   };
 
   const flushList = () => {
@@ -136,7 +136,8 @@ export function topicDescriptionBlocks(input: string): Block[] {
     const items = footnoteState.order.map((rawId, index) => ({
       index: index + 1,
       rawId,
-      url: referenceMap.get(rawId),
+      url: referenceMap.get(rawId)?.url,
+      text: referenceMap.get(rawId)?.text,
     }));
     blocks.push({ kind: "references", items });
   }
