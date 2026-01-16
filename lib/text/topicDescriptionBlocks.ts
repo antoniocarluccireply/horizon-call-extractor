@@ -233,6 +233,83 @@ function tokenizeInline(
   return tokenizeText(text, state, referenceMap);
 }
 
+function inlineTokensToText(tokens: InlineToken[]): string {
+  return tokens
+    .map((token) => {
+      if (token.kind === "ref") {
+        return "";
+      }
+      return token.text;
+    })
+    .join("");
+}
+
+function repairExpectedOutcomeIntro(
+  blocks: Block[],
+  blockLineIndexes: Array<number | null>,
+  workingLines: string[],
+): void {
+  const labelRegex = /^Expected Outcome\s*:/i;
+  const introSuffixRegex = /to some or all of the following$/i;
+  const expectedOutcomesRegex = /expected outcomes/i;
+  const expectedOutcomesFragmentRegex = /expected outcomes:?\s*$/i;
+
+  blocks.forEach((block, index) => {
+    if (block.kind !== "paragraph") {
+      return;
+    }
+    const nextBlock = blocks[index + 1];
+    if (!nextBlock || nextBlock.kind !== "list") {
+      return;
+    }
+    if (!block.tokens.length || block.tokens[0].kind !== "label") {
+      return;
+    }
+    if (!labelRegex.test(block.tokens[0].text)) {
+      return;
+    }
+    const introText = inlineTokensToText(block.tokens).trim();
+    if (!introSuffixRegex.test(introText)) {
+      return;
+    }
+    if (expectedOutcomesRegex.test(introText)) {
+      return;
+    }
+    if (/:+$/.test(introText)) {
+      return;
+    }
+    const lineIndex = blockLineIndexes[index];
+    if (lineIndex === null || lineIndex === undefined) {
+      return;
+    }
+    const nextLines = workingLines.slice(lineIndex + 1, lineIndex + 3);
+    const hasFragment = nextLines.some((line) =>
+      expectedOutcomesFragmentRegex.test(line.trim()),
+    );
+    if (!hasFragment) {
+      return;
+    }
+    const appendText = " expected outcomes:";
+    const lastTextIndex = [...block.tokens]
+      .map((token, tokenIndex) =>
+        token.kind === "text" ? tokenIndex : -1,
+      )
+      .filter((tokenIndex) => tokenIndex >= 0)
+      .pop();
+    if (lastTextIndex === undefined) {
+      block.tokens.push({ kind: "text", text: appendText });
+      return;
+    }
+    const lastToken = block.tokens[lastTextIndex] as InlineToken & {
+      kind: "text";
+    };
+    const suffix = lastToken.text.endsWith(" ")
+      ? appendText.trimStart()
+      : appendText;
+    lastToken.text = `${lastToken.text}${suffix}`;
+  });
+}
+
 export function topicDescriptionBlocks(input: string): Block[] {
   const normalized = normalizeTopicText(input);
   if (!normalized) {
@@ -261,8 +338,11 @@ export function topicDescriptionBlocks(input: string): Block[] {
     workingLines.push(line);
   });
   const blocks: Block[] = [];
+  const blockLineIndexes: Array<number | null> = [];
   let paragraphLines: string[] = [];
+  let paragraphLineIndexes: number[] = [];
   let listItems: InlineToken[][] = [];
+  let listLineIndexes: number[] = [];
   const footnoteState: FootnoteState = { map: new Map(), order: [] };
 
   const flushParagraph = () => {
@@ -271,6 +351,8 @@ export function topicDescriptionBlocks(input: string): Block[] {
     }
     const text = paragraphLines.join(" ").replace(/\s+/g, " ").trim();
     paragraphLines = [];
+    const lastLineIndex = paragraphLineIndexes.at(-1) ?? null;
+    paragraphLineIndexes = [];
     if (!text) {
       return;
     }
@@ -278,6 +360,7 @@ export function topicDescriptionBlocks(input: string): Block[] {
       kind: "paragraph",
       tokens: tokenizeInline(text, footnoteState, referenceMap),
     });
+    blockLineIndexes.push(lastLineIndex);
   };
 
   const flushList = () => {
@@ -285,10 +368,12 @@ export function topicDescriptionBlocks(input: string): Block[] {
       return;
     }
     blocks.push({ kind: "list", items: listItems });
+    blockLineIndexes.push(listLineIndexes[0] ?? null);
     listItems = [];
+    listLineIndexes = [];
   };
 
-  workingLines.forEach((line) => {
+  workingLines.forEach((line, lineIndex) => {
     const trimmed = line.trim();
     if (!trimmed) {
       flushParagraph();
@@ -301,14 +386,18 @@ export function topicDescriptionBlocks(input: string): Block[] {
       listItems.push(
         tokenizeInline(bulletMatch[2].trim(), footnoteState, referenceMap),
       );
+      listLineIndexes.push(lineIndex);
       return;
     }
     flushList();
     paragraphLines.push(trimmed);
+    paragraphLineIndexes.push(lineIndex);
   });
 
   flushParagraph();
   flushList();
+
+  repairExpectedOutcomeIntro(blocks, blockLineIndexes, workingLines);
 
   if (footnoteState.order.length) {
     const items = footnoteState.order.map((rawId, index) => ({
