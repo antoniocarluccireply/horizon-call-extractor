@@ -26,6 +26,7 @@ const referenceLineRegex =
 const referenceUrlOnlyRegex = /^\s*(https?:\/\/\S+)\s*$/i;
 const labelOnlyRegex = /^(Expected Outcome|Scope):?\s*$/i;
 const labelInlineRegex = /^(Expected Outcome|Scope)\s*:/i;
+const bulletLineRegex = /^([•\-–])\s+/;
 
 function getFootnoteIndex(rawId: string, state: FootnoteState): number {
   const existing = state.map.get(rawId);
@@ -112,6 +113,9 @@ function mergeLines(lines: string[]): string[] {
         continue;
       }
       if (labelOnlyRegex.test(current)) {
+        if (bulletLineRegex.test(nextTrim)) {
+          break;
+        }
         const labelText = current.replace(/:\s*$/, ":");
         current = `${labelText} ${nextTrim}`;
         i += 1;
