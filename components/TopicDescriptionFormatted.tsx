@@ -4,10 +4,12 @@ import { topicDescriptionBlocks } from "../lib/text/topicDescriptionBlocks";
 
 type TopicDescriptionFormattedProps = {
   text: string;
+  className?: string;
 };
 
 export function TopicDescriptionFormatted({
   text,
+  className,
 }: TopicDescriptionFormattedProps) {
   const blocks = topicDescriptionBlocks(text);
   const getReferenceLabel = (url?: string) => {
@@ -22,7 +24,14 @@ export function TopicDescriptionFormatted({
   }
 
   return (
-    <div className="topic-description text-sm leading-[1.4] text-slate-800">
+    <div
+      className={[
+        "topic-description text-sm leading-[1.45] text-slate-800",
+        className ?? "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       {blocks.map((block, blockIndex) => {
         if (block.kind === "paragraph") {
           return (
@@ -45,7 +54,7 @@ export function TopicDescriptionFormatted({
                   >
                     <a
                       href={`#reference-${token.index}`}
-                      className="text-slate-600 hover:text-slate-700 hover:underline underline-offset-2"
+                      className="text-blue-700 hover:text-blue-800 hover:underline underline-offset-2"
                     >
                       [{token.index}]
                     </a>
@@ -59,7 +68,7 @@ export function TopicDescriptionFormatted({
           return (
             <ul
               key={`list-${blockIndex}`}
-              className="list-disc list-outside pl-5 space-y-1 mt-2 mb-3"
+              className="list-disc list-outside pl-5 space-y-1 mt-1 mb-2"
             >
               {block.items.map((item, itemIndex) => (
                 <li key={`list-${blockIndex}-item-${itemIndex}`} className="pl-1">
@@ -81,7 +90,7 @@ export function TopicDescriptionFormatted({
                       >
                         <a
                           href={`#reference-${token.index}`}
-                          className="text-slate-600 hover:text-slate-700 hover:underline underline-offset-2"
+                          className="text-blue-700 hover:text-blue-800 hover:underline underline-offset-2"
                         >
                           [{token.index}]
                         </a>
@@ -117,7 +126,7 @@ export function TopicDescriptionFormatted({
                           <>
                             {label ? <span aria-hidden="true">—</span> : null}
                             <a
-                              className="text-slate-600 break-all hover:text-slate-700 hover:underline underline-offset-2"
+                              className="text-blue-700 break-all hover:text-blue-800 hover:underline underline-offset-2"
                               href={item.url}
                               target="_blank"
                               rel="noreferrer"
