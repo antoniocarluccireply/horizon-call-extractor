@@ -130,6 +130,9 @@
       letter-spacing:.3px;
       text-transform: uppercase;
       margin-bottom: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
     }
     .textinput, select{
       width: 100%;
@@ -330,7 +333,7 @@
       align-items: center;
       gap: 8px;
     }
-    .filter-calltypes.generating .textinput::after{
+    .filter-calltypes.generating .filterlabel::after{
       content: "";
       width: 12px;
       height: 12px;
@@ -338,6 +341,15 @@
       border: 2px solid #cbd5e1;
       border-top-color: #64748b;
       animation: spin 0.9s linear infinite;
+    }
+    .filter-calltypes.disabled .textinput{
+      background: #f8fafc;
+      border-color: #e2e8f0;
+      color: #64748b;
+      cursor: not-allowed;
+    }
+    .filter-calltypes.disabled .filterlabel{
+      color: #64748b;
     }
     @media (max-width: 520px){
       .modal-card{ padding: 16px; border-radius: 16px; }
@@ -380,10 +392,11 @@
       </div>
       <p class="hint">We automatically detect whether the PDF is Horizon or EDF to avoid mixing documents.</p>
 
+      <form id="filtersForm">
       <div class="filters" id="filters">
         <div class="filter-item filter-calltypes" id="callTypesFilter">
           <div class="filterlabel">Call types</div>
-          <div class="textinput clickable" id="typeSummary">All types</div>
+          <div class="textinput clickable" id="typeSummary" tabindex="0">All types</div>
           <div class="hint">Multi-select call types. Same UI for Horizon and EDF.</div>
           <div class="dropdown" id="typeMenu" style="margin-top:6px; display:none;">
             <div class="actions" style="margin-bottom:6px;">
@@ -428,9 +441,9 @@
             <ul class="filelist" id="filelist"></ul>
           </div>
           <div class="actions">
-            <button class="btn" id="clear" disabled>Remove</button>
-            <button class="btn" id="cancel" style="display:none;">Cancel</button>
-            <button class="btn primary" id="go" disabled>Generate Excel</button>
+            <button class="btn" id="clear" type="button" disabled>Remove</button>
+            <button class="btn" id="cancel" type="button" style="display:none;">Cancel</button>
+            <button class="btn primary" id="go" type="submit" disabled>Generate Excel</button>
           </div>
         </div>
         <div class="progresswrap">
@@ -458,10 +471,11 @@
           <div class="kpi" id="kpi" style="display:none;">
             <div class="chip">Rows: <strong id="rows">0</strong></div>
             <div class="chip">Status: <strong id="final">Ready</strong></div>
-            <button class="btn primary" id="downloadBtn" style="display:none;">Download Excel</button>
+            <button class="btn primary" id="downloadBtn" type="button" style="display:none;">Download Excel</button>
           </div>
         </div>
       </div>
+      </form>
     </div>
 
     <div class="card results active" id="results-horizon">
@@ -556,6 +570,7 @@
       uploadXhrs: [],
       processTicker: null,
       progressPct: 0,
+      progressByRun: {},
     };
 
     function fmtBytes(bytes){
@@ -575,6 +590,8 @@
     function startRun(){
       const id = newRunId();
       state.currentRunId = id;
+      state.progressByRun[id] = 0;
+      state.progressPct = 0;
       return id;
     }
 
@@ -1042,10 +1059,6 @@
     }
 
     function updateTypeSummary(tab = state.activeTab){
-      if(state.exporting){
-        $("typeSummary").textContent = "Generating…";
-        return;
-      }
       const sel = state.tabs[tab].selectedTypes;
       const opts = state.tabs[tab].callTypes;
       const size = sel.size;
@@ -1177,8 +1190,16 @@
     }
     function setProgress(pct){
       const val = Math.max(0, Math.min(100, Number(pct) || 0));
-      state.progressPct = val;
-      $("progressText").textContent = `${Math.round(val)}%`;
+      const runId = state.currentRunId;
+      if(runId){
+        const prev = state.progressByRun[runId] ?? 0;
+        const next = Math.max(prev, val);
+        state.progressByRun[runId] = next;
+        state.progressPct = next;
+      } else {
+        state.progressPct = val;
+      }
+      $("progressText").textContent = `${Math.round(state.progressPct)}%`;
       _updateBarWidth();
     }
     function barNone(){ $("bar").classList.remove("indet"); setProgressStage("Idle"); setProgress(0); }
@@ -1201,7 +1222,7 @@
         state.processTicker = null;
       }
     }
-    function startProcessDrift(start=60, end=85){
+    function startProcessDrift(start=30, end=95){
       stopProcessDrift();
       barIndeterminate();
       if(state.progressPct < start){
@@ -1233,11 +1254,7 @@
     function setExporting(exporting){
       state.exporting = exporting;
       $("callTypesFilter").classList.toggle("generating", exporting);
-      if(exporting){
-        $("typeSummary").textContent = "Generating…";
-      } else {
-        updateTypeSummary(state.activeTab);
-      }
+      updateTypeSummary(state.activeTab);
       setCallTypeDisabled(state.busy || exporting);
     }
 
@@ -1569,12 +1586,12 @@
           let uploaded = 0;
           perFileLoaded.forEach(v => { uploaded += v; });
           const base = 10;
-          const range = 50;
+          const range = 20;
           const pct = totalBytes
             ? base + (uploaded / totalBytes) * range
             : base + (perFileLoaded.size / uploads.length) * range;
           barDeterminate();
-          setProgress(Math.min(60, pct));
+          setProgress(Math.min(30, pct));
         };
 
         uploads.forEach((up, idx) => {
@@ -1597,7 +1614,7 @@
             }
             if(perFileLoaded.size === uploads.length){
               finish(() => {
-                setProgress(60);
+                setProgress(30);
                 resolve();
               });
             }
@@ -1615,13 +1632,15 @@
       });
     }
 
-    $("go").onclick = async () => {
+    function canStartExport(){
+      const tab = state.activeTab;
+      return !state.busy && !state.exporting && Boolean(state.tabs[tab].files.length);
+    }
+
+    async function startExport(){
       const tab = state.activeTab;
       const files = state.tabs[tab].files;
-      if(!files.length){
-        setStatus("Select PDF(s).", tab === "horizon" ? "Upload 1–6 Horizon PDFs." : "Upload one EDF PDF.", true);
-        return;
-      }
+      if(!files.length) return;
       const runId = startRun();
       state.abort = new AbortController();
       stopProcessDrift();
@@ -1652,7 +1671,7 @@
         // Process
         setSteps(2, true);
         setProgressStage("Parsing + Excel");
-        startProcessDrift(60, 85);
+        startProcessDrift(30, 95);
         setStatus("3/4 • Parsing + Excel…", "Detecting document family, applying filters, building workbook.");
         const payload = {
           pdf_keys: uploads.map(u => u.pdf_key),
@@ -1693,7 +1712,7 @@
         stopProcessDrift();
         barDeterminate();
         setProgressStage("Preparing download");
-        setProgress(90);
+        setProgress(95);
         setSteps(3, true);
         setStatus("4/4 • Preparing download…", "Creating a temporary Excel link.");
         const dl = await fetchJson("/download", {
@@ -1713,6 +1732,7 @@
         container.scrollIntoView({ behavior: "smooth", block: "start" });
       }catch(e){
         stopProcessDrift();
+        clearRun(runId);
         barNone(); clearSteps();
         setProgressStage("Error");
         const msg = e?.message || String(e);
@@ -1754,7 +1774,34 @@
         state.uploadXhrs = [];
         stopProcessDrift();
       }
-    };
+    }
+
+    const form = $("filtersForm");
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      if(!canStartExport()){
+        return;
+      }
+      startExport();
+    });
+
+    form.addEventListener("keydown", (e) => {
+      if(e.key !== "Enter"){
+        return;
+      }
+      if(e.target && e.target.tagName === "TEXTAREA"){
+        return;
+      }
+      if($("typeMenu").style.display === "block"){
+        e.preventDefault();
+        return;
+      }
+      if(!canStartExport()){
+        return;
+      }
+      e.preventDefault();
+      startExport();
+    });
 
     $("cancel").onclick = () => {
       stopProcessDrift();
