@@ -255,19 +255,26 @@
     .rawtext{ white-space: pre-wrap; font-family: "SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace; font-size: 13px; color:#2f241c; }
     .desc-summary{ display:flex; gap: 8px; flex-wrap: wrap; align-items:center; }
     .desc-preview{ color: var(--muted2); font-size: 12px; font-weight: 500; }
-    .desc-body{ line-height:1.35; font-size: 13px; color:#2f241c; width:100%; min-width:0; word-break: break-word; overflow-wrap:anywhere; }
+    .desc-body{ line-height:1.3; font-size: 13px; color:#2f241c; width:100%; min-width:0; word-break: break-word; overflow-wrap:anywhere; }
     .summary-block{ display:flex; flex-direction:column; gap:4px; width:100%; min-width:0; }
-    .summary-text{ color: var(--muted2); font-size: 13px; line-height:1.45; width:100%; min-width:0; word-break: break-word; overflow-wrap:anywhere; }
+    .summary-text{ color: var(--muted2); font-size: 13px; line-height:1.3; width:100%; min-width:0; word-break: break-word; overflow-wrap:anywhere; }
     .summary-text.expanded{ -webkit-line-clamp: unset; max-height:none; }
     .summary-text.desc-preview{ display:block; -webkit-line-clamp: unset; max-height:none; }
     .desc-content{ display:flex; flex-direction:column; width:100%; min-width:0; }
     .desc-content h4{ margin: 12px 0 6px; font-size: 12px; font-weight: 700; color: #2f241c; }
     .desc-content h4:first-child{ margin-top: 4px; }
-    .desc-content p{ margin: 0 0 6px; font-size: 13px; line-height: 1.45; }
-    .desc-content ul{ margin: 0 0 10px; padding-left: 18px; list-style: disc; display: grid; gap: 4px; }
-    .desc-content li{ line-height: 1.45; font-size: 13px; }
+    .desc-content p{ margin: 0 0 6px; font-size: 13px; line-height: 1.3; }
+    .desc-content ul{ margin: 2px 0 8px; padding-left: 22px; list-style: disc; list-style-position: outside; display: grid; gap: 4px; }
+    .desc-content p + ul{ margin-top: 2px; }
+    .desc-content li{ line-height: 1.3; font-size: 13px; }
     .desc-content .desc-separator{ margin: 8px 0; border-top: 1px solid #e0d7c9; }
-    .desc-link{ color: var(--accent-strong); text-decoration: underline; }
+    .desc-link{ color: #1d4ed8; text-decoration: underline; }
+    .desc-link:visited{ color: #6d28d9; }
+    .desc-references{ margin-top: 8px; }
+    .desc-references-title{ font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted2); margin: 6px 0 4px; }
+    .desc-references-list{ list-style: none; padding-left: 0; margin: 0; display: grid; gap: 4px; }
+    .desc-reference-item{ font-size: 11px; line-height: 1.3; color: var(--muted2); display: flex; gap: 6px; align-items: flex-start; }
+    .desc-reference-num{ color: var(--muted2); }
     .summary-toggle{ background:none; border:none; color: var(--accent-strong); font-weight:700; font-size:12px; cursor:pointer; padding:0; align-self:flex-start; }
     .modal-overlay{
       position: fixed;
@@ -575,8 +582,20 @@
       return opt.label || opt.name;
     }
 
+    function normalizeTopicText(input){
+      if(!input){
+        return "";
+      }
+      return String(input)
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .replace(/[ \t]+$/gm, "")
+        .replace(/\b([A-Za-z])\s*-\s*([A-Za-z])\b/g, "$1-$2")
+        .trim();
+    }
+
     function parseTopicDescription(text){
-      const full = (text || "").trim();
+      const full = normalizeTopicText(text);
       if(!full){
         return { full: "", preview: "", expected: "", scope: "" };
       }
@@ -640,17 +659,66 @@
         const label = text.replace(/:\s*$/, "").trim().toLowerCase();
         return headingWhitelist.has(label);
       };
-      const normalized = String(input || "")
-        .replace(/\r\n/g, "\n")
-        .replace(/[ \t]+$/gm, "")
-        .trim();
+      const normalized = normalizeTopicText(input);
       if(!normalized){
         return [];
       }
       const lines = normalized.split("\n");
+      const referenceLines = [];
+      const isReferenceLine = (line) => {
+        const trimmed = line.trim();
+        if(!trimmed){
+          return false;
+        }
+        if(/^\[\d+\]\s+/.test(trimmed)){
+          return true;
+        }
+        if(/^\d+\s+https?:\/\/\S+/.test(trimmed)){
+          return true;
+        }
+        if(/^https?:\/\/\S+/.test(trimmed)){
+          return true;
+        }
+        return false;
+      };
+      let endIndex = lines.length - 1;
+      while(endIndex >= 0 && !lines[endIndex].trim()){
+        endIndex -= 1;
+      }
+      while(endIndex >= 0 && isReferenceLine(lines[endIndex])){
+        referenceLines.unshift(lines[endIndex].trim());
+        endIndex -= 1;
+        while(endIndex >= 0 && !lines[endIndex].trim()){
+          endIndex -= 1;
+        }
+      }
+      const workingLines = lines.slice(0, endIndex + 1);
       const blocks = [];
       let paragraph = [];
       let listItems = [];
+      const referenceItems = referenceLines.map((line) => {
+        let trimmed = line.trim();
+        let label = trimmed;
+        const bracketMatch = trimmed.match(/^\[(\d+)\]\s*(.*)$/);
+        const leadingNumberMatch = trimmed.match(/^\d+\s+(.*)$/);
+        if(bracketMatch){
+          label = bracketMatch[2] ? bracketMatch[2].trim() : "";
+        } else if(leadingNumberMatch){
+          label = leadingNumberMatch[1].trim();
+        }
+        let url;
+        const urlMatch = trimmed.match(/https?:\/\/[^\s<]+/);
+        if(urlMatch){
+          url = urlMatch[0];
+          if(label){
+            label = label.replace(urlMatch[0], "").trim();
+          }
+          if(!label){
+            label = url;
+          }
+        }
+        return { label, url };
+      }).filter(item => item.label || item.url);
       const flushParagraph = () => {
         if(paragraph.length){
           const text = paragraph.join(" ").replace(/\s+/g, " ").trim();
@@ -664,7 +732,7 @@
           listItems = [];
         }
       };
-      lines.forEach((line) => {
+      workingLines.forEach((line) => {
         const trimmed = line.trim();
         if(!trimmed){
           flushParagraph();
@@ -701,6 +769,9 @@
       });
       flushParagraph();
       flushList();
+      if(referenceItems.length){
+        blocks.push({ kind: "references", items: referenceItems });
+      }
       return blocks;
     }
 
@@ -785,6 +856,38 @@
           const sep = document.createElement("div");
           sep.className = "desc-separator";
           container.appendChild(sep);
+        }
+        if(block.kind === "references"){
+          const wrap = document.createElement("div");
+          wrap.className = "desc-references";
+          const title = document.createElement("div");
+          title.className = "desc-references-title";
+          title.textContent = "References";
+          const list = document.createElement("ol");
+          list.className = "desc-references-list";
+          block.items.forEach((item, idx) => {
+            const li = document.createElement("li");
+            li.className = "desc-reference-item";
+            const num = document.createElement("span");
+            num.className = "desc-reference-num";
+            num.textContent = `[${idx + 1}]`;
+            li.appendChild(num);
+            if(item.url){
+              const link = document.createElement("a");
+              link.href = item.url;
+              link.target = "_blank";
+              link.rel = "noreferrer";
+              link.className = "desc-link";
+              link.textContent = item.label || item.url;
+              li.appendChild(link);
+            } else if(item.label){
+              li.appendChild(document.createTextNode(item.label));
+            }
+            list.appendChild(li);
+          });
+          wrap.appendChild(title);
+          wrap.appendChild(list);
+          container.appendChild(wrap);
         }
       });
     }
