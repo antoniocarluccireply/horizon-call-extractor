@@ -255,7 +255,7 @@
     .rawtext{ white-space: pre-wrap; font-family: "SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace; font-size: 13px; color:#2f241c; }
     .desc-summary{ display:flex; gap: 8px; flex-wrap: wrap; align-items:center; }
     .desc-preview{ color: var(--muted2); font-size: 12px; font-weight: 500; }
-    .desc-body{ line-height:1.3; font-size: 13px; color:#2f241c; width:100%; min-width:0; word-break: break-word; overflow-wrap:anywhere; }
+    .desc-body{ line-height:1.25; font-size: 13px; color:#2f241c; width:100%; min-width:0; word-break: break-word; overflow-wrap:anywhere; }
     .summary-block{ display:flex; flex-direction:column; gap:4px; width:100%; min-width:0; }
     .summary-text{ color: var(--muted2); font-size: 13px; line-height:1.3; width:100%; min-width:0; word-break: break-word; overflow-wrap:anywhere; }
     .summary-text.expanded{ -webkit-line-clamp: unset; max-height:none; }
@@ -263,18 +263,20 @@
     .desc-content{ display:flex; flex-direction:column; width:100%; min-width:0; }
     .desc-content h4{ margin: 12px 0 6px; font-size: 12px; font-weight: 700; color: #2f241c; }
     .desc-content h4:first-child{ margin-top: 4px; }
-    .desc-content p{ margin: 0 0 6px; font-size: 13px; line-height: 1.3; }
-    .desc-content ul{ margin: 2px 0 8px; padding-left: 22px; list-style: disc; list-style-position: outside; display: grid; gap: 4px; }
-    .desc-content p + ul{ margin-top: 2px; }
-    .desc-content li{ line-height: 1.3; font-size: 13px; }
+    .desc-content p{ margin: 0 0 8px; font-size: 13px; line-height: 1.25; }
+    .desc-content ul{ margin: 0 0 12px; padding-left: 24px; list-style: disc; list-style-position: outside; }
+    .desc-content p + ul{ margin-top: 0; }
+    .desc-content li{ line-height: 1.25; font-size: 13px; }
+    .desc-content li + li{ margin-top: 4px; }
     .desc-content .desc-separator{ margin: 8px 0; border-top: 1px solid #e0d7c9; }
-    .desc-link{ color: #1d4ed8; text-decoration: underline; }
+    .desc-link{ color: #1d4ed8; text-decoration: underline; word-break: break-all; }
     .desc-link:visited{ color: #6d28d9; }
-    .desc-references{ margin-top: 8px; }
-    .desc-references-title{ font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted2); margin: 6px 0 4px; }
+    .desc-references{ margin-top: 16px; }
+    .desc-references-title{ font-size: 12px; font-weight: 600; color: #64748b; margin: 0 0 4px; }
     .desc-references-list{ list-style: none; padding-left: 0; margin: 0; display: grid; gap: 4px; }
-    .desc-reference-item{ font-size: 11px; line-height: 1.3; color: var(--muted2); display: flex; gap: 6px; align-items: flex-start; }
-    .desc-reference-num{ color: var(--muted2); }
+    .desc-reference-item{ font-size: 12px; line-height: 1.25; color: #64748b; display: flex; gap: 6px; align-items: flex-start; }
+    .desc-reference-num{ color: #64748b; }
+    .desc-footnote{ margin-left: 2px; font-size: 11px; color: #64748b; }
     .summary-toggle{ background:none; border:none; color: var(--accent-strong); font-weight:700; font-size:12px; cursor:pointer; padding:0; align-self:flex-start; }
     .modal-overlay{
       position: fixed;
@@ -586,12 +588,18 @@
       if(!input){
         return "";
       }
-      return String(input)
+      let normalized = String(input)
         .replace(/\r\n/g, "\n")
         .replace(/\r/g, "\n")
-        .replace(/[ \t]+$/gm, "")
-        .replace(/\b([A-Za-z])\s*-\s*([A-Za-z])\b/g, "$1-$2")
-        .trim();
+        .replace(/[\u00ad\uFFFD]/g, "")
+        .replace(/[\u2010\u2011\u2212]/g, "-")
+        .replace(/[ \t]+$/gm, "");
+      let prev = null;
+      while(prev !== normalized){
+        prev = normalized;
+        normalized = normalized.replace(/([A-Za-z])\s*-\s*([A-Za-z])/g, "$1-$2");
+      }
+      return normalized.trim();
     }
 
     function parseTopicDescription(text){
@@ -636,6 +644,39 @@
       return escaped.replace(/&lt;sup&gt;(\d{1,3})&lt;\/sup&gt;/g, "<sup>$1</sup>");
     }
 
+    const footnoteRegex = /([A-Za-z)])(\d{3,})(?=[^0-9A-Za-z]|$)/g;
+
+    function getFootnoteIndex(rawId, state){
+      if(state.map.has(rawId)){
+        return state.map.get(rawId);
+      }
+      const nextIndex = state.order.length + 1;
+      state.map.set(rawId, nextIndex);
+      state.order.push(rawId);
+      return nextIndex;
+    }
+
+    function tokenizeInline(text, state){
+      const tokens = [];
+      let lastIndex = 0;
+      let match;
+      footnoteRegex.lastIndex = 0;
+      while((match = footnoteRegex.exec(text)) !== null){
+        const prefixEnd = match.index + 1;
+        const rawId = match[2];
+        const leadingText = text.slice(lastIndex, prefixEnd);
+        if(leadingText){
+          tokens.push({ kind: "text", text: leadingText });
+        }
+        tokens.push({ kind: "footnoteRef", index: getFootnoteIndex(rawId, state) });
+        lastIndex = prefixEnd + rawId.length;
+      }
+      if(lastIndex < text.length){
+        tokens.push({ kind: "text", text: text.slice(lastIndex) });
+      }
+      return tokens;
+    }
+
     function parseTopicDescriptionToBlocks(input){
       const headingWhitelist = new Set([
         "expected outcome",
@@ -665,64 +706,39 @@
       }
       const lines = normalized.split("\n");
       const referenceLines = [];
-      const isReferenceLine = (line) => {
-        const trimmed = line.trim();
-        if(!trimmed){
-          return false;
-        }
-        if(/^\[\d+\]\s+/.test(trimmed)){
-          return true;
-        }
-        if(/^\d+\s+https?:\/\/\S+/.test(trimmed)){
-          return true;
-        }
-        if(/^https?:\/\/\S+/.test(trimmed)){
-          return true;
-        }
-        return false;
-      };
       let endIndex = lines.length - 1;
       while(endIndex >= 0 && !lines[endIndex].trim()){
         endIndex -= 1;
       }
-      while(endIndex >= 0 && isReferenceLine(lines[endIndex])){
-        referenceLines.unshift(lines[endIndex].trim());
-        endIndex -= 1;
-        while(endIndex >= 0 && !lines[endIndex].trim()){
+      while(endIndex >= 0){
+        const trimmed = lines[endIndex].trim();
+        if(!trimmed){
           endIndex -= 1;
+          continue;
         }
+        if(/^\d+\s+https?:\/\/\S+/.test(trimmed)){
+          referenceLines.unshift(trimmed);
+          endIndex -= 1;
+          continue;
+        }
+        break;
       }
       const workingLines = lines.slice(0, endIndex + 1);
+      const referenceMap = new Map();
+      referenceLines.forEach((line) => {
+        const match = line.match(/^(\d+)\s+(https?:\/\/\S+)/);
+        if(match){
+          referenceMap.set(match[1], match[2]);
+        }
+      });
       const blocks = [];
       let paragraph = [];
       let listItems = [];
-      const referenceItems = referenceLines.map((line) => {
-        let trimmed = line.trim();
-        let label = trimmed;
-        const bracketMatch = trimmed.match(/^\[(\d+)\]\s*(.*)$/);
-        const leadingNumberMatch = trimmed.match(/^\d+\s+(.*)$/);
-        if(bracketMatch){
-          label = bracketMatch[2] ? bracketMatch[2].trim() : "";
-        } else if(leadingNumberMatch){
-          label = leadingNumberMatch[1].trim();
-        }
-        let url;
-        const urlMatch = trimmed.match(/https?:\/\/[^\s<]+/);
-        if(urlMatch){
-          url = urlMatch[0];
-          if(label){
-            label = label.replace(urlMatch[0], "").trim();
-          }
-          if(!label){
-            label = url;
-          }
-        }
-        return { label, url };
-      }).filter(item => item.label || item.url);
+      const footnoteState = { map: new Map(), order: [] };
       const flushParagraph = () => {
         if(paragraph.length){
           const text = paragraph.join(" ").replace(/\s+/g, " ").trim();
-          if(text){ blocks.push({ kind: "paragraph", text }); }
+          if(text){ blocks.push({ kind: "paragraph", tokens: tokenizeInline(text, footnoteState) }); }
           paragraph = [];
         }
       };
@@ -754,14 +770,15 @@
         const bulletMatch = trimmed.match(/^([•\-–])\s+(.*)$/);
         if(bulletMatch){
           flushParagraph();
-          listItems.push(bulletMatch[2].trim());
+          listItems.push(tokenizeInline(bulletMatch[2].trim(), footnoteState));
           return;
         }
         flushList();
         if(/:\s*$/.test(trimmed) && trimmed.length <= 60){
           const lastBlock = blocks[blocks.length - 1];
           if(!paragraph.length && lastBlock && lastBlock.kind === "paragraph"){
-            lastBlock.text = `${lastBlock.text} ${trimmed}`.replace(/\s+/g, " ").trim();
+            const tokens = tokenizeInline(` ${trimmed}`, footnoteState);
+            lastBlock.tokens = lastBlock.tokens.concat(tokens);
             return;
           }
         }
@@ -769,8 +786,13 @@
       });
       flushParagraph();
       flushList();
-      if(referenceItems.length){
-        blocks.push({ kind: "references", items: referenceItems });
+      if(footnoteState.order.length){
+        const items = footnoteState.order.map((rawId, index) => ({
+          index: index + 1,
+          rawId,
+          url: referenceMap.get(rawId),
+        }));
+        blocks.push({ kind: "references", items });
       }
       return blocks;
     }
@@ -808,22 +830,17 @@
       }
     }
 
-    function appendTextWithSup(parent, text){
-      const supRegex = /<sup>(\d{1,3})<\/sup>/gi;
-      let lastIndex = 0;
-      let match;
-      while((match = supRegex.exec(text)) !== null){
-        if(match.index > lastIndex){
-          appendLinkifiedText(parent, text.slice(lastIndex, match.index));
+    function appendInlineTokens(parent, tokens){
+      tokens.forEach((token) => {
+        if(token.kind === "text"){
+          appendLinkifiedText(parent, token.text);
+          return;
         }
         const sup = document.createElement("sup");
-        sup.textContent = match[1];
+        sup.className = "desc-footnote";
+        sup.textContent = `[${token.index}]`;
         parent.appendChild(sup);
-        lastIndex = match.index + match[0].length;
-      }
-      if(lastIndex < text.length){
-        appendLinkifiedText(parent, text.slice(lastIndex));
-      }
+      });
     }
 
     function renderTopicDescriptionBlocks(text, container){
@@ -838,7 +855,7 @@
         }
         if(block.kind === "paragraph"){
           const p = document.createElement("p");
-          appendTextWithSup(p, block.text);
+          appendInlineTokens(p, block.tokens);
           container.appendChild(p);
           return;
         }
@@ -846,7 +863,7 @@
           const ul = document.createElement("ul");
           block.items.forEach((item) => {
             const li = document.createElement("li");
-            appendTextWithSup(li, item);
+            appendInlineTokens(li, item);
             ul.appendChild(li);
           });
           container.appendChild(ul);
@@ -863,14 +880,14 @@
           const title = document.createElement("div");
           title.className = "desc-references-title";
           title.textContent = "References";
-          const list = document.createElement("ol");
+          const list = document.createElement("ul");
           list.className = "desc-references-list";
-          block.items.forEach((item, idx) => {
+          block.items.forEach((item) => {
             const li = document.createElement("li");
             li.className = "desc-reference-item";
             const num = document.createElement("span");
             num.className = "desc-reference-num";
-            num.textContent = `[${idx + 1}]`;
+            num.textContent = `[${item.index}]`;
             li.appendChild(num);
             if(item.url){
               const link = document.createElement("a");
@@ -878,10 +895,10 @@
               link.target = "_blank";
               link.rel = "noreferrer";
               link.className = "desc-link";
-              link.textContent = item.label || item.url;
+              link.textContent = item.url;
               li.appendChild(link);
-            } else if(item.label){
-              li.appendChild(document.createTextNode(item.label));
+            } else {
+              li.appendChild(document.createTextNode("Reference unavailable"));
             }
             list.appendChild(li);
           });
