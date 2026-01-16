@@ -3,10 +3,21 @@ export function normalizeTopicText(input: string): string {
     return "";
   }
 
-  return String(input)
+  let normalized = String(input)
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
-    .replace(/[ \t]+$/gm, "")
-    .replace(/\b([A-Za-z])\s*-\s*([A-Za-z])\b/g, "$1-$2")
-    .trim();
+    .replace(/[\u00ad\uFFFD]/g, "")
+    .replace(/[\u2010\u2011\u2212]/g, "-")
+    .replace(/[ \t]+$/gm, "");
+
+  let prev: string | null = null;
+  while (prev !== normalized) {
+    prev = normalized;
+    normalized = normalized.replace(
+      /([A-Za-z])\s*-\s*([A-Za-z])/g,
+      "$1-$2",
+    );
+  }
+
+  return normalized.trim();
 }
