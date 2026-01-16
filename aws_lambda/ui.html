@@ -223,6 +223,7 @@
     .bar{ width:0%; height:100%; border-radius:999px; background: linear-gradient(90deg, #88a17f, var(--accent)); transition: width .2s ease; }
     .bar.indet{ width:100%; animation: indet 1.2s infinite linear; transform-origin:left; }
     @keyframes indet{ 0%{ transform: translateX(-100%);} 100%{ transform: translateX(100%);} }
+    @keyframes spin{ to{ transform: rotate(360deg); } }
     .stepper{ margin-top: 14px; display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
     .step{ border: 1px solid #d7d1c7; background: #faf7f2; border-radius: 12px; padding: 10px 12px; color: var(--muted2); font-size: 12px; display:flex; align-items:center; gap: 10px; min-height: 44px; }
     .badge{ width: 22px;height:22px;border-radius: 8px; display:flex;align-items:center;justify-content:center; border: 1px solid #d7d1c7; background: #ede6db; color: var(--muted); font-weight: 750; font-size: 12px; flex: 0 0 auto; }
@@ -255,7 +256,7 @@
     .rawtext{ white-space: pre-wrap; font-family: "SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace; font-size: 13px; color:#2f241c; }
     .desc-summary{ display:flex; gap: 8px; flex-wrap: wrap; align-items:center; }
     .desc-preview{ color: var(--muted2); font-size: 12px; font-weight: 500; }
-    .desc-body{ line-height:1.25; font-size: 13px; color:#2f241c; width:100%; min-width:0; word-break: break-word; overflow-wrap:anywhere; }
+    .desc-body{ line-height:1.4; font-size: 13px; color:#2f241c; width:100%; min-width:0; word-break: break-word; overflow-wrap:anywhere; }
     .summary-block{ display:flex; flex-direction:column; gap:4px; width:100%; min-width:0; }
     .summary-text{ color: var(--muted2); font-size: 13px; line-height:1.3; width:100%; min-width:0; word-break: break-word; overflow-wrap:anywhere; }
     .summary-text.expanded{ -webkit-line-clamp: unset; max-height:none; }
@@ -263,20 +264,23 @@
     .desc-content{ display:flex; flex-direction:column; width:100%; min-width:0; }
     .desc-content h4{ margin: 12px 0 6px; font-size: 12px; font-weight: 700; color: #2f241c; }
     .desc-content h4:first-child{ margin-top: 4px; }
-    .desc-content p{ margin: 0 0 8px; font-size: 13px; line-height: 1.25; }
-    .desc-content ul{ margin: 0 0 12px; padding-left: 24px; list-style: disc; list-style-position: outside; }
-    .desc-content p + ul{ margin-top: 0; }
-    .desc-content li{ line-height: 1.25; font-size: 13px; }
+    .desc-content p{ margin: 0 0 8px; font-size: 13px; line-height: 1.4; }
+    .desc-content ul{ margin: 6px 0 10px; padding-left: 20px; list-style: disc; list-style-position: outside; }
+    .desc-content p + ul{ margin-top: 4px; }
+    .desc-content li{ line-height: 1.4; font-size: 13px; padding-left: 4px; }
     .desc-content li + li{ margin-top: 4px; }
     .desc-content .desc-separator{ margin: 8px 0; border-top: 1px solid #e0d7c9; }
-    .desc-link{ color: #1d4ed8; text-decoration: underline; word-break: break-all; }
-    .desc-link:visited{ color: #6d28d9; }
+    .desc-link{ color: #475569; text-decoration: none; word-break: break-all; }
+    .desc-link:hover{ color: #334155; text-decoration: underline; text-underline-offset: 2px; }
     .desc-references{ margin-top: 16px; }
     .desc-references-title{ font-size: 12px; font-weight: 600; color: #64748b; margin: 0 0 4px; }
     .desc-references-list{ list-style: none; padding-left: 0; margin: 0; display: grid; gap: 4px; }
     .desc-reference-item{ font-size: 12px; line-height: 1.25; color: #64748b; display: flex; gap: 6px; align-items: flex-start; }
     .desc-reference-num{ color: #64748b; }
+    .desc-reference-content{ display: flex; flex-wrap: wrap; gap: 4px; }
     .desc-footnote{ margin-left: 2px; font-size: 11px; color: #64748b; }
+    .desc-footnote a{ color: inherit; text-decoration: none; }
+    .desc-footnote a:hover{ text-decoration: underline; text-underline-offset: 2px; color: #475569; }
     .summary-toggle{ background:none; border:none; color: var(--accent-strong); font-weight:700; font-size:12px; cursor:pointer; padding:0; align-self:flex-start; }
     .modal-overlay{
       position: fixed;
@@ -321,6 +325,20 @@
     .notice .info-sub{ color: var(--muted2); font-size: 11px; margin-top: 2px; }
     .filter-calltypes.disabled{ opacity: 0.5; pointer-events: none; }
     .filter-calltypes.disabled .textinput{ cursor: not-allowed; }
+    .filter-calltypes.generating .textinput{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .filter-calltypes.generating .textinput::after{
+      content: "";
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      border: 2px solid #cbd5e1;
+      border-top-color: #64748b;
+      animation: spin 0.9s linear infinite;
+    }
     @media (max-width: 520px){
       .modal-card{ padding: 16px; border-radius: 16px; }
       .modal-title{ font-size: 16px; }
@@ -532,6 +550,7 @@
         edf: { rows: [], downloadUrl: null, rowsCount: 0, summaryNotice: "" },
       },
       busy: false,
+      exporting: false,
       currentRunId: null,
       abort: null,
       uploadXhrs: [],
@@ -593,13 +612,32 @@
         .replace(/\r/g, "\n")
         .replace(/[\u00ad\uFFFD]/g, "")
         .replace(/[\u2010\u2011\u2212]/g, "-")
+        .replace(/&quot;/g, "\"")
+        .replace(/&apos;/g, "'")
+        .replace(/&#39;/g, "'")
         .replace(/[ \t]+$/gm, "");
       let prev = null;
       while(prev !== normalized){
         prev = normalized;
-        normalized = normalized.replace(/([A-Za-z])\s*-\s*([A-Za-z])/g, "$1-$2");
+        normalized = normalized.replace(/([\p{L}])\s*-\s*([\p{L}])/gu, "$1-$2");
       }
+      normalized = normalized.replace(/([\p{L}])-\n([\p{L}])/gu, "$1-$2");
       return normalized.trim();
+    }
+
+    function fixLeadingCapitalization(title){
+      const trimmed = String(title || "").trimStart();
+      if(!trimmed){
+        return "";
+      }
+      const firstChar = trimmed[0];
+      if(!/[A-Za-z]/.test(firstChar)){
+        return trimmed;
+      }
+      if(firstChar === firstChar.toUpperCase()){
+        return trimmed;
+      }
+      return firstChar.toUpperCase() + trimmed.slice(1);
     }
 
     function parseTopicDescription(text){
@@ -644,7 +682,96 @@
       return escaped.replace(/&lt;sup&gt;(\d{1,3})&lt;\/sup&gt;/g, "<sup>$1</sup>");
     }
 
-    const footnoteRegex = /([A-Za-z)])(\d{3,})(?=[^0-9A-Za-z]|$)/g;
+    const bracketRefRegex = /\[(\d{1,4})\]/g;
+    const attachedRefRegex = /([A-Za-z\)])(\d{1,2})(?=[^0-9A-Za-z]|$)/g;
+    const urlRegex = /https?:\/\/\S+/gi;
+    const referenceLineRegex = /^\s*(?:\[(\d{1,4})\]|(\d{1,4}))\s+(.+?)\s*(https?:\/\/\S+)\s*$/i;
+    const referenceUrlOnlyRegex = /^\s*(https?:\/\/\S+)\s*$/i;
+    const labelOnlyRegex = /^(Expected Outcome|Scope):?\s*$/i;
+    const labelInlineRegex = /^(Expected Outcome|Scope)\s*:/i;
+
+    function cleanUrl(url){
+      return url.replace(/[),.;:]+$/g, "");
+    }
+
+    function ensureReferenceEntry(rawId, data, map){
+      const existing = map.get(rawId);
+      if(!existing){
+        map.set(rawId, data);
+        return;
+      }
+      map.set(rawId, {
+        url: existing.url || data.url,
+        text: existing.text || data.text,
+      });
+    }
+
+    function extractReferenceLine(line){
+      const trimmed = line.trim();
+      if(!trimmed){
+        return null;
+      }
+      const match = trimmed.match(referenceLineRegex);
+      if(match){
+        const rawId = match[1] || match[2];
+        const url = cleanUrl(match[4]);
+        return { rawId, url, text: (match[3] || "").trim() || undefined };
+      }
+      const urlOnly = trimmed.match(referenceUrlOnlyRegex);
+      if(urlOnly){
+        const url = cleanUrl(urlOnly[1]);
+        return { rawId: url, url };
+      }
+      return null;
+    }
+
+    function isSentenceContinuation(prev, next){
+      if(/[.!?;:]$/.test(prev)){
+        return false;
+      }
+      if(/^[a-z]/.test(next)){
+        return true;
+      }
+      return /^[("“‘’\[]/.test(next);
+    }
+
+    function mergeLines(lines){
+      const merged = [];
+      for(let i = 0; i < lines.length; i += 1){
+        const raw = lines[i].replace(/[ \t]+$/g, "");
+        if(!raw.trim()){
+          merged.push("");
+          continue;
+        }
+        let current = raw.trim();
+        while(i + 1 < lines.length){
+          const next = lines[i + 1];
+          const nextTrim = next.trim();
+          if(!nextTrim){
+            break;
+          }
+          if(/-$/.test(current) && /^[\p{L}]/u.test(nextTrim)){
+            current = current.replace(/-$/, "-") + nextTrim;
+            i += 1;
+            continue;
+          }
+          if(labelOnlyRegex.test(current)){
+            const labelText = current.replace(/:\s*$/, ":");
+            current = `${labelText} ${nextTrim}`;
+            i += 1;
+            continue;
+          }
+          if(isSentenceContinuation(current, nextTrim)){
+            current = `${current} ${nextTrim}`;
+            i += 1;
+            continue;
+          }
+          break;
+        }
+        merged.push(current);
+      }
+      return merged;
+    }
 
     function getFootnoteIndex(rawId, state){
       if(state.map.has(rawId)){
@@ -656,80 +783,101 @@
       return nextIndex;
     }
 
-    function tokenizeInline(text, state){
+    function tokenizeText(text, state, referenceMap){
       const tokens = [];
-      let lastIndex = 0;
-      let match;
-      footnoteRegex.lastIndex = 0;
-      while((match = footnoteRegex.exec(text)) !== null){
-        const prefixEnd = match.index + 1;
-        const rawId = match[2];
-        const leadingText = text.slice(lastIndex, prefixEnd);
+      let index = 0;
+      while(index < text.length){
+        urlRegex.lastIndex = index;
+        bracketRefRegex.lastIndex = index;
+        attachedRefRegex.lastIndex = index;
+        const urlMatch = urlRegex.exec(text);
+        const bracketMatch = bracketRefRegex.exec(text);
+        const attachedMatch = attachedRefRegex.exec(text);
+        const candidates = [urlMatch, bracketMatch, attachedMatch].filter(Boolean);
+        if(!candidates.length){
+          const remaining = text.slice(index);
+          if(remaining){
+            tokens.push({ kind: "text", text: remaining });
+          }
+          break;
+        }
+        let nextMatch = candidates[0];
+        candidates.forEach((candidate) => {
+          if(candidate.index < nextMatch.index){
+            nextMatch = candidate;
+          }
+        });
+        if(nextMatch.index > index){
+          tokens.push({ kind: "text", text: text.slice(index, nextMatch.index) });
+        }
+        if(nextMatch === urlMatch){
+          let url = nextMatch[0];
+          let trailing = "";
+          while(/[),.;:]+$/.test(url)){
+            trailing = url.slice(-1) + trailing;
+            url = url.slice(0, -1);
+          }
+          const clean = cleanUrl(url);
+          ensureReferenceEntry(clean, { url: clean }, referenceMap);
+          tokens.push({ kind: "footnoteRef", index: getFootnoteIndex(clean, state) });
+          if(trailing){
+            tokens.push({ kind: "text", text: trailing });
+          }
+          index = nextMatch.index + nextMatch[0].length;
+          continue;
+        }
+        if(nextMatch === bracketMatch){
+          const rawId = nextMatch[1];
+          tokens.push({ kind: "footnoteRef", index: getFootnoteIndex(rawId, state) });
+          index = nextMatch.index + nextMatch[0].length;
+          continue;
+        }
+        const rawId = nextMatch[2];
+        const prefixEnd = nextMatch.index + 1;
+        const leadingText = text.slice(index, prefixEnd);
         if(leadingText){
           tokens.push({ kind: "text", text: leadingText });
         }
         tokens.push({ kind: "footnoteRef", index: getFootnoteIndex(rawId, state) });
-        lastIndex = prefixEnd + rawId.length;
-      }
-      if(lastIndex < text.length){
-        tokens.push({ kind: "text", text: text.slice(lastIndex) });
+        index = prefixEnd + rawId.length;
       }
       return tokens;
     }
 
-    function parseTopicDescriptionToBlocks(input){
-      const headingWhitelist = new Set([
-        "expected outcome",
-        "expected outcomes",
-        "scope",
-        "applicants are expected to",
-        "applicants should",
-        "proposals should",
-        "specific topic conditions",
-        "specific conditions",
-        "type of action",
-        "conditions",
-        "expected impact",
-        "outcomes",
-        "topic description",
-      ]);
-      const isHeadingLine = (text) => {
-        if(!/:\s*$/.test(text)){
-          return false;
+    function tokenizeInline(text, state, referenceMap){
+      const labelMatch = text.match(labelInlineRegex);
+      if(labelMatch){
+        const labelText = text.slice(0, labelMatch[0].length).trim();
+        const tokens = [{ kind: "label", text: labelText }];
+        const remainder = text.slice(labelMatch[0].length).trimStart();
+        if(remainder){
+          tokens.push(...tokenizeText(` ${remainder}`, state, referenceMap));
         }
-        const label = text.replace(/:\s*$/, "").trim().toLowerCase();
-        return headingWhitelist.has(label);
-      };
+        return tokens;
+      }
+      return tokenizeText(text, state, referenceMap);
+    }
+
+    function parseTopicDescriptionToBlocks(input){
       const normalized = normalizeTopicText(input);
       if(!normalized){
         return [];
       }
-      const lines = normalized.split("\n");
-      const referenceLines = [];
-      let endIndex = lines.length - 1;
-      while(endIndex >= 0 && !lines[endIndex].trim()){
-        endIndex -= 1;
-      }
-      while(endIndex >= 0){
-        const trimmed = lines[endIndex].trim();
-        if(!trimmed){
-          endIndex -= 1;
-          continue;
-        }
-        if(/^\d+\s+https?:\/\/\S+/.test(trimmed)){
-          referenceLines.unshift(trimmed);
-          endIndex -= 1;
-          continue;
-        }
-        break;
-      }
-      const workingLines = lines.slice(0, endIndex + 1);
+      const lines = mergeLines(normalized.split("\n"));
       const referenceMap = new Map();
-      referenceLines.forEach((line) => {
-        const match = line.match(/^(\d+)\s+(https?:\/\/\S+)/);
-        if(match){
-          referenceMap.set(match[1], match[2]);
+      const workingLines = [];
+      lines.forEach((line) => {
+        const trimmed = line.trim();
+        if(!trimmed){
+          workingLines.push(line);
+          return;
         }
+        const reference = extractReferenceLine(trimmed);
+        if(reference){
+          ensureReferenceEntry(reference.rawId, { url: reference.url, text: reference.text }, referenceMap);
+          return;
+        }
+        workingLines.push(line);
       });
       const blocks = [];
       let paragraph = [];
@@ -738,7 +886,7 @@
       const flushParagraph = () => {
         if(paragraph.length){
           const text = paragraph.join(" ").replace(/\s+/g, " ").trim();
-          if(text){ blocks.push({ kind: "paragraph", tokens: tokenizeInline(text, footnoteState) }); }
+          if(text){ blocks.push({ kind: "paragraph", tokens: tokenizeInline(text, footnoteState, referenceMap) }); }
           paragraph = [];
         }
       };
@@ -755,33 +903,13 @@
           flushList();
           return;
         }
-        if(/^[-–—]{3,}$/.test(trimmed)){
-          flushParagraph();
-          flushList();
-          blocks.push({ kind: "separator" });
-          return;
-        }
-        if(isHeadingLine(trimmed)){
-          flushParagraph();
-          flushList();
-          blocks.push({ kind: "heading", text: trimmed.replace(/:\s*$/, "") });
-          return;
-        }
         const bulletMatch = trimmed.match(/^([•\-–])\s+(.*)$/);
         if(bulletMatch){
           flushParagraph();
-          listItems.push(tokenizeInline(bulletMatch[2].trim(), footnoteState));
+          listItems.push(tokenizeInline(bulletMatch[2].trim(), footnoteState, referenceMap));
           return;
         }
         flushList();
-        if(/:\s*$/.test(trimmed) && trimmed.length <= 60){
-          const lastBlock = blocks[blocks.length - 1];
-          if(!paragraph.length && lastBlock && lastBlock.kind === "paragraph"){
-            const tokens = tokenizeInline(` ${trimmed}`, footnoteState);
-            lastBlock.tokens = lastBlock.tokens.concat(tokens);
-            return;
-          }
-        }
         paragraph.push(trimmed);
       });
       flushParagraph();
@@ -790,7 +918,8 @@
         const items = footnoteState.order.map((rawId, index) => ({
           index: index + 1,
           rawId,
-          url: referenceMap.get(rawId),
+          url: (referenceMap.get(rawId) || {}).url,
+          text: (referenceMap.get(rawId) || {}).text,
         }));
         blocks.push({ kind: "references", items });
       }
@@ -798,36 +927,7 @@
     }
 
     function appendLinkifiedText(parent, text){
-      const urlRegex = /https?:\/\/[^\s<]+/g;
-      let lastIndex = 0;
-      let match;
-      while((match = urlRegex.exec(text)) !== null){
-        if(match.index > lastIndex){
-          parent.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
-        }
-        let url = match[0];
-        let trailing = "";
-        while(/[),.;:]+$/.test(url)){
-          trailing = url.slice(-1) + trailing;
-          url = url.slice(0, -1);
-        }
-        if(url){
-          const link = document.createElement("a");
-          link.href = url;
-          link.target = "_blank";
-          link.rel = "noreferrer";
-          link.className = "desc-link";
-          link.textContent = url;
-          parent.appendChild(link);
-        }
-        if(trailing){
-          parent.appendChild(document.createTextNode(trailing));
-        }
-        lastIndex = match.index + match[0].length;
-      }
-      if(lastIndex < text.length){
-        parent.appendChild(document.createTextNode(text.slice(lastIndex)));
-      }
+      parent.appendChild(document.createTextNode(text));
     }
 
     function appendInlineTokens(parent, tokens){
@@ -836,11 +936,27 @@
           appendLinkifiedText(parent, token.text);
           return;
         }
+        if(token.kind === "label"){
+          const strong = document.createElement("strong");
+          strong.textContent = token.text;
+          parent.appendChild(strong);
+          return;
+        }
         const sup = document.createElement("sup");
         sup.className = "desc-footnote";
-        sup.textContent = `[${token.index}]`;
+        const link = document.createElement("a");
+        link.href = `#reference-${token.index}`;
+        link.textContent = `[${token.index}]`;
+        sup.appendChild(link);
         parent.appendChild(sup);
       });
+    }
+
+    function getReferenceLabel(url){
+      if(!url){
+        return "";
+      }
+      return url.replace(/^https?:\/\//, "").split(/[/?#]/)[0];
     }
 
     function renderTopicDescriptionBlocks(text, container){
@@ -885,21 +1001,37 @@
           block.items.forEach((item) => {
             const li = document.createElement("li");
             li.className = "desc-reference-item";
+            li.id = `reference-${item.index}`;
             const num = document.createElement("span");
             num.className = "desc-reference-num";
             num.textContent = `[${item.index}]`;
             li.appendChild(num);
+            const content = document.createElement("span");
+            content.className = "desc-reference-content";
+            const label = item.text || (item.url ? getReferenceLabel(item.url) : "");
+            if(label){
+              const labelSpan = document.createElement("span");
+              labelSpan.textContent = label;
+              content.appendChild(labelSpan);
+            }
             if(item.url){
+              if(label){
+                const dash = document.createElement("span");
+                dash.textContent = "—";
+                dash.setAttribute("aria-hidden", "true");
+                content.appendChild(dash);
+              }
               const link = document.createElement("a");
               link.href = item.url;
               link.target = "_blank";
               link.rel = "noreferrer";
               link.className = "desc-link";
               link.textContent = item.url;
-              li.appendChild(link);
-            } else {
-              li.appendChild(document.createTextNode("Reference unavailable"));
+              content.appendChild(link);
+            } else if(!label){
+              content.appendChild(document.createTextNode("Reference unavailable"));
             }
+            li.appendChild(content);
             list.appendChild(li);
           });
           wrap.appendChild(title);
@@ -910,6 +1042,10 @@
     }
 
     function updateTypeSummary(tab = state.activeTab){
+      if(state.exporting){
+        $("typeSummary").textContent = "Generating…";
+        return;
+      }
       const sel = state.tabs[tab].selectedTypes;
       const opts = state.tabs[tab].callTypes;
       const size = sel.size;
@@ -945,6 +1081,7 @@
         lbl.style.fontWeight = "400";
         const input = document.createElement("input");
         input.type = "checkbox"; input.value = opt.name; input.checked = state.tabs[tab].selectedTypes.has(opt.name);
+        input.disabled = state.busy || state.exporting;
         input.onchange = () => {
           if(input.checked) state.tabs[tab].selectedTypes.add(opt.name); else state.tabs[tab].selectedTypes.delete(opt.name);
           updateTypeSummary(tab);
@@ -974,6 +1111,11 @@
       filter.classList.toggle("disabled", disabled);
       $("typeSummary").setAttribute("aria-disabled", disabled ? "true" : "false");
       $("typeSummary").tabIndex = disabled ? -1 : 0;
+      $("typeAll").disabled = disabled;
+      $("typeNone").disabled = disabled;
+      $("typeList").querySelectorAll("input[type=checkbox]").forEach((input) => {
+        input.disabled = disabled;
+      });
       if(disabled){
         $("typeMenu").style.display = "none";
       }
@@ -1084,8 +1226,19 @@
       $("budget").disabled = busy;
       $("openFilter").disabled = busy;
       $("deadlineFilter").disabled = busy;
-      setCallTypeDisabled(busy);
+      setCallTypeDisabled(busy || state.exporting);
       updateDateClearButtons(state.activeTab);
+    }
+
+    function setExporting(exporting){
+      state.exporting = exporting;
+      $("callTypesFilter").classList.toggle("generating", exporting);
+      if(exporting){
+        $("typeSummary").textContent = "Generating…";
+      } else {
+        updateTypeSummary(state.activeTab);
+      }
+      setCallTypeDisabled(state.busy || exporting);
     }
 
     function setFiles(tab, files){
@@ -1188,7 +1341,7 @@
     $("clear").onclick = () => { setFiles(state.activeTab, []); $("fileInput").value = ""; };
 
     $("typeSummary").onclick = () => {
-      if(state.busy) return;
+      if(state.busy || state.exporting) return;
       const menu = $("typeMenu");
       const isOpen = menu.style.display === "block";
       if(isOpen){
@@ -1311,7 +1464,7 @@
         card.appendChild(id);
 
         const title = document.createElement("div");
-        title.className = "subtitle"; title.textContent = r.topic_title || "—";
+          title.className = "subtitle"; title.textContent = fixLeadingCapitalization(r.topic_title || "—");
         card.appendChild(title);
 
         const descData = parseTopicDescription(r.topic_description || r.summary);
@@ -1473,6 +1626,7 @@
       state.abort = new AbortController();
       stopProcessDrift();
       state.uploadXhrs = [];
+      setExporting(true);
       setBusy(true); resetResult(tab); barDeterminate(); setProgress(0); setProgressStage("Presigning");
       try{
         // Presign
@@ -1594,6 +1748,7 @@
         setStatus("Error.", "Please check the message and try again.", true);
       }finally{
         clearRun(runId);
+        setExporting(false);
         setBusy(false);
         state.abort = null;
         state.uploadXhrs = [];
@@ -1612,6 +1767,7 @@
       clearSteps();
       barNone();
       resetResult(state.activeTab);
+      setExporting(false);
       setBusy(false);
       setStatus("Cancelled.", "The operation was stopped on this device.");
     };

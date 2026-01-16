@@ -1091,9 +1091,14 @@ def _summarize_topics(rows: List[Dict], doc_type: str, context=None):
     n = 0
     for r in rows:
         if n >= max_topics:
-            notice = (
+            raw_notice = (
                 f"AI summaries are generated only for the first {max_topics} topics.\n"
                 "Parsing and Excel export still include all topics."
+            )
+            print(raw_notice)
+            notice = (
+                "AI extraction reached the configured limit. Some items may be missing. "
+                "Try narrowing filters or rerun."
             )
             break
 
