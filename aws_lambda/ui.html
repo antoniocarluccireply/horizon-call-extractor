@@ -618,6 +618,28 @@
     }
 
     function parseTopicDescriptionToBlocks(input){
+      const headingWhitelist = new Set([
+        "expected outcome",
+        "expected outcomes",
+        "scope",
+        "applicants are expected to",
+        "applicants should",
+        "proposals should",
+        "specific topic conditions",
+        "specific conditions",
+        "type of action",
+        "conditions",
+        "expected impact",
+        "outcomes",
+        "topic description",
+      ]);
+      const isHeadingLine = (text) => {
+        if(!/:\s*$/.test(text)){
+          return false;
+        }
+        const label = text.replace(/:\s*$/, "").trim().toLowerCase();
+        return headingWhitelist.has(label);
+      };
       const normalized = String(input || "")
         .replace(/\r\n/g, "\n")
         .replace(/[ \t]+$/gm, "")
@@ -655,7 +677,7 @@
           blocks.push({ kind: "separator" });
           return;
         }
-        if(/:\s*$/.test(trimmed) && trimmed.length <= 60){
+        if(isHeadingLine(trimmed)){
           flushParagraph();
           flushList();
           blocks.push({ kind: "heading", text: trimmed.replace(/:\s*$/, "") });
@@ -668,6 +690,13 @@
           return;
         }
         flushList();
+        if(/:\s*$/.test(trimmed) && trimmed.length <= 60){
+          const lastBlock = blocks[blocks.length - 1];
+          if(!paragraph.length && lastBlock && lastBlock.kind === "paragraph"){
+            lastBlock.text = `${lastBlock.text} ${trimmed}`.replace(/\s+/g, " ").trim();
+            return;
+          }
+        }
         paragraph.push(trimmed);
       });
       flushParagraph();
